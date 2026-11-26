@@ -93,6 +93,7 @@
   .tsec .comp{font-size:12px;color:var(--gris-7);display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap}
   .tsec .smas,.tsec .sx{padding:3px 8px;font-size:12px}
   .err-box{background:#fdecea;border:1px solid #f5c2bf;border-radius:8px;padding:8px 12px;margin:8px 0;color:var(--error)}
+  .campo{display:block;width:100%;box-sizing:border-box;font:inherit;font-weight:400;padding:8px 10px;border:1px solid var(--gris-3);border-radius:8px;margin-top:4px;background:#fff}
   .dos{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:640px){.dos{grid-template-columns:1fr}}
 </style>
 </head>
@@ -158,6 +159,7 @@
       <input type="file" id="fAnexo2">
       <div class="fila"><span class="info" id="infoAnexo2">Sin archivo del ANEXO II.</span><button class="sec peq" id="btnQuitarAnexo2" hidden>Quitar</button></div>
     </div>
+    <div id="comprobacion" style="margin-top:14px"></div>
     <div class="acciones">
       <button id="btnKmz">Generar carpeta y KMZ</button>
       <button class="sec" id="btnCarpeta" hidden>Descargar solo la carpeta del centro</button>
@@ -186,6 +188,38 @@
     <div id="res2"></div>
   </section>
 
+
+  <!-- PASO 3 -->
+  <section class="card" id="paso3">
+    <h2><span class="paso">3</span> <span id="tituloPaso3">Informe / Certificado</span> y carpeta final</h2>
+    <p class="sub">Con el ANEXO III generado: revisa los datos, sube la captura del KMZ modificado sacada de Google Earth y descarga el Word o la carpeta final para la plataforma.</p>
+    <div id="p3Vacio" class="info">Genera primero el ANEXO III en el paso 2.</div>
+    <div id="p3Form" hidden>
+      <div class="dos">
+        <label class="t">Provincia<select id="p3Prov" class="campo"></select></label>
+        <label class="t" id="p3TecWrap">Técnico de campo<input id="p3Tec" class="campo" list="p3TecList"><datalist id="p3TecList"></datalist></label>
+        <label class="t">Fecha de la revisión<input id="p3Fecha" type="date" class="campo"></label>
+        <label class="t">Centro (CD)<input id="p3Cd" class="campo" readonly></label>
+        <label class="t">Dirección<input id="p3Dir" class="campo"></label>
+        <label class="t">Población<input id="p3Pob" class="campo"></label>
+      </div>
+      <div class="info" id="p3DirInfo"></div>
+      <div style="margin-top:12px">
+        <label class="t">Captura del ANEXO I <span class="opc">(de Google Earth, con el KMZ modificado)</span></label>
+        <div class="drop" id="dropCaptura">Arrastra aquí la captura o <u>pulsa para elegir</u></div>
+        <input type="file" id="fCaptura" accept="image/*">
+        <div class="fila"><img id="p3CapPrev" alt="" hidden style="max-width:280px;max-height:160px;border:1px solid var(--gris-3);border-radius:6px"><button class="sec peq" id="btnQuitarCaptura" hidden>Quitar</button></div>
+      </div>
+      <div id="p3Defs" style="margin-top:10px"></div>
+      <div class="info" id="p3Firma"></div>
+      <div class="acciones">
+        <button id="btnCarpetaFinal">Descargar carpeta final</button>
+        <button class="sec" id="btnWord">Descargar solo el Word</button>
+      </div>
+      <div class="info" id="p3Contenido"></div>
+      <div id="res3"></div>
+    </div>
+  </section>
   <section class="card" id="metros">
     <h2><span class="paso">📏</span> Comprobar metros y sacar ANEXO III de un KMZ</h2>
     <p class="sub">Sube uno o varios KMZ (de esta app, de los prompts o de Google Earth) y te digo los metros de líneas que tiene cada uno, por salida y en total. Cada línea dibujada cuenta entera: un tramo compartido por dos salidas cuenta dos veces. Después marca los que quieras y te saco su ANEXO III con los metros reales de cada tramo y el total.</p>
@@ -202,6 +236,8 @@
 <script src="vendor/jszip.min.js"></script>
 <script src="js/template.js"></script>
 <script src="js/core.js"></script>
+<script src="js/defectos.js"></script>
+<script src="js/motor.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

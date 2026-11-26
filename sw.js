@@ -1,5 +1,5 @@
-const CACHE = 'bajatension-1.1.0';
-const SHELL = ['./', 'index.html', 'js/app.js', 'js/core.js', 'js/template.js', 'vendor/jszip.min.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'plantillas/anexo2.docx'];
+const CACHE = 'bajatension-1.2.0';
+const SHELL = ['./', 'index.html', 'js/app.js', 'js/core.js', 'js/template.js', 'vendor/jszip.min.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'plantillas/anexo2.docx', 'plantillas/plantilla.docx', 'plantillas/plantilla_certificado.docx', 'plantillas/direcciones.json', 'js/motor.js', 'js/defectos.js'];
 // Siempre se piden a la red saltándose la caché HTTP del navegador (GitHub Pages guarda 10 min);
 // la copia local solo se usa sin conexión.
 self.addEventListener('install', e => {

@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.2.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -19,7 +19,7 @@
   $('txtComp').addEventListener('input', () => { lsSet(LS.comp, $('txtComp').value); clearTimeout(estado.tComp); estado.tComp = setTimeout(() => pintarSecciones(), 600); });
   const infoTabla = (ta, info) => { const n = C.splitTable(ta.value).length; $(info).textContent = n ? n + ' filas' : ''; };
   [['txtMain', 'infoMain', LS.main], ['txtDef', 'infoDef', LS.def]].forEach(([ta, info, k]) => {
-    $(ta).addEventListener('input', () => { lsSet(k, $(ta).value); clearTimeout(estado.tRen); estado.tRen = setTimeout(() => { if (estado.fotos.length && ctTabla() !== estado.ctFotos) { renombrarCampo(); pintarFotos(); } }, 700); infoTabla($(ta), info); actualizarBtnExcel(); clearTimeout(estado.tNum); estado.tNum = setTimeout(() => { pintarNumeracion(); pintarSecciones(); avisarTabla(); marcarFotosSiToca(); }, 500); });
+    $(ta).addEventListener('input', () => { lsSet(k, $(ta).value); comprobarLuego(); clearTimeout(estado.tRen); estado.tRen = setTimeout(() => { if (estado.fotos.length && ctTabla() !== estado.ctFotos) { renombrarCampo(); pintarFotos(); } }, 700); infoTabla($(ta), info); actualizarBtnExcel(); clearTimeout(estado.tNum); estado.tNum = setTimeout(() => { pintarNumeracion(); pintarSecciones(); avisarTabla(); marcarFotosSiToca(); }, 500); });
     infoTabla($(ta), info);
   });
   $('chkSuf1').addEventListener('change', () => lsSet(LS.suf, $('chkSuf1').checked ? '1' : ''));
@@ -144,11 +144,12 @@
     if (estado.mapaListo) pintarNumeracion();
     const n = estado.fotos.length;
     $('btnQuitarFotos').hidden = !n; $('btnCarpeta').hidden = !n;
-    if (!n) { $('infoFotos').textContent = 'Sin fotos.'; $('detFotos').innerHTML = ''; return; }
+    if (!n) { $('infoFotos').textContent = 'Sin fotos.'; $('detFotos').innerHTML = ''; comprobarLuego(); return; }
     if (!estado.ctFotos) { $('infoFotos').textContent = `${n} fotos cargadas (${estado.fotos.filter(f => f.origen !== 'def').length} de posiciones, ${estado.fotos.filter(f => f.origen === 'def').length} de defectos). Pega la tabla de posiciones para renombrarlas con su CT.`; $('detFotos').innerHTML = ''; return; }
     const ren = estado.fotos.filter(f => f.campo && f.campo.estado === 'renombrado').length;
     const mal = estado.fotos.filter(f => f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido'));
     const nP = estado.fotos.filter(f => f.origen !== 'def').length, nD = n - nP;
+    comprobarLuego();
     $('infoFotos').textContent = `${n} fotos (${nP} de posiciones${nD ? `, ${nD} de defectos` : ', sin ZIP de defectos'}) · ${ren} renombradas con CT ${estado.ctFotos}${n - ren - mal.length ? ` · ${n - ren - mal.length} ya tenían su nombre` : ''}${mal.length ? ` · ${mal.length} sin renombrar` : ''}. Se redimensionan a 1366×768.`;
     const filas = estado.fotos.map(f => `<tr${f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido') ? ' class="t-aviso"' : ''}><td>${f.origen === 'def' ? 'Defectos' : 'Posiciones'}</td><td>${esc(f.crudo)}</td><td>${esc(f.nombre)}</td><td>${f.campo ? (f.campo.estado === 'renombrado' ? 'Renombrada' : f.campo.estado === 'igual' ? 'Igual' : (f.campo.estado === 'omitido' ? 'Omitida' : 'Ignorada') + ' (' + esc(f.campo.motivo) + ')') : ''}</td></tr>`).join('');
     $('detFotos').innerHTML = `<details${mal.length ? ' open' : ''}><summary>Nombres de las fotos${mal.length ? ` (${mal.length} sin renombrar)` : ''}</summary><table><tr><th>ZIP</th><th>Nombre en el ZIP</th><th>Nombre nuevo</th><th></th></tr>${filas}</table></details>`;
@@ -547,6 +548,7 @@
       const nombre = `ANEXO III - ${m.ct}.xlsx`;
       descargar(blob, nombre);
       marcarPaso('excel', m.ct);
+      estado.anexo3 = { blob, nombre, kmz, kzip: k.zip, ct: m.ct };
       const conDef = an.filas.filter(f => f.defec || f.q91x);
       let h = `<div class="res"><div class="ok-box">✔ <b>${esc(nombre)}</b> generado y descargado desde <i>${esc(kmz.nombre)}</i>.</div>
         <div class="chips"><span class="chip">Filas <b>${an.filas.length}</b></span><span class="chip">Con defecto <b>${conDef.length}</b></span><span class="chip">Suma DIST. <b>${C.fmtMiles(an.totalDist)} m</b></span><span class="chip">Fotos en FOTO <b>${gx.nFotos}</b></span><span class="chip">Defectos leídos de <b>${an.fuenteDef}</b></span></div>`;
@@ -561,7 +563,7 @@
           <button id="btnInforme"></button></div>
         <div class="info" id="infoDoc"></div>
         <div class="info">${prov.origen ? 'Provincia tomada de ' + prov.origen + '.' : 'Elige la provincia del centro (no está en GestCD).'}</div></div>`;
-      estado.informe = inf;
+      estado.informe = inf; prepararPaso3();
       h += an.avisos.length ? `<b class="t-aviso">Avisos (${an.avisos.length})</b>${listaAvisos(an.avisos, 't-aviso')}` : '<div class="t-ok">Topología del KMZ coincide con la tabla. Sin avisos.</div>';
       if (an.resumen.length) h += `<details open><summary>Supuestos aplicados</summary>${listaAvisos(an.resumen, '')}</details>`;
       h += `<details><summary>Ver filas del ANEXO III</summary><div class="scroll"><table><tr><th>Nº</th><th>TIPO</th><th>INICIO</th><th>FIN</th><th>SECCIÓN</th><th>DIST.</th><th>DEFEC.</th><th>Q91X</th><th>OBSERVACIONES</th><th>FOTO</th></tr>${an.filas.map(f => `<tr><td>${esc(f.apoyo)}</td><td>${esc(f.tipo)}</td><td>${esc(f.inicio)}</td><td>${esc(f.fin)}</td><td>${esc(f.seccion)}</td><td>${f.dist}</td><td>${esc(f.defec)}</td><td>${esc(f.q91x)}</td><td>${esc(f.obs)}</td><td>${f.fotoVm ? esc(f.fotoSrc.split('/').pop()) + '<br><span class="info">' + esc(f.fotoMotivo) + '</span>' : ''}</td></tr>`).join('')}</table></div></details></div>`;
@@ -588,6 +590,150 @@
   });
 
 
+
+
+
+  // ───────── Comprobación previa: qué falta o no encaja antes de generar ─────────
+  function comprobar() {
+    const zona = $('comprobacion'); if (!zona) return;
+    let m; try { m = modeloDesdeTablas(); } catch (e) { zona.innerHTML = ''; return; }
+    if (!estado.fotos.length) { zona.innerHTML = '<div class="info">Comprobación: carga los ZIP de fotos para ver si falta alguna.</div>'; return; }
+    if (!estado.ctFotos) { zona.innerHTML = ''; return; }
+    const ph = C.asociarFotos(m, estado.fotos.map(f => f.nombre), { sufijo1EsCGP: $('chkSuf1').checked });
+    const nom = n => n.esPT ? 'PT ' + n.ct : `apoyo ${n.apoyo} (${C.salName(+n.salida)})`;
+    const sinFoto = m.nodes.filter(n => !n.fotos.length && !(n.fotosCGP || []).length).map(nom);
+    const cgpSin = m.nodes.filter(n => n.cgp && !(n.fotosCGP || []).length).map(nom);
+    const defSin = m.defectos.filter(d => !d.fotos.length).map(d => `${d.codigo} en ${nom(d.node)}`);
+    const renSin = estado.fotos.filter(f => f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido')).map(f => `${f.crudo} — ${f.campo.motivo}`);
+    const grupos = [
+      ['Fotos que no se han podido renombrar', renSin],
+      ['Fotos que no encajan con ningún apoyo o defecto', ph.huerfanas.map(x => x.nombre + ' — ' + x.motivo)],
+      ['Apoyos sin ninguna foto', sinFoto],
+      ['Defectos sin foto', defSin],
+      ['Apoyos con CGP/CPM sin foto de la CGP/CPM', cgpSin]
+    ].filter(g => g[1].length);
+    zona.innerHTML = grupos.length
+      ? `<div class="t-aviso"><b>Comprobación antes de generar</b> (${ph.asociadas} de ${ph.total} fotos asociadas):</div>` + grupos.map(([t, l]) => `<details${l.length <= 8 ? ' open' : ''}><summary class="t-aviso">${t} (${l.length})</summary>${listaAvisos(l, 't-aviso')}</details>`).join('')
+      : `<div class="ok-box">✔ Comprobación: las ${ph.total} fotos encajan, todos los apoyos y defectos tienen foto${m.nodes.some(n => n.cgp) ? ' y todas las CGP/CPM la suya' : ''}.</div>`;
+  }
+  function comprobarLuego() { clearTimeout(estado.tComp2); estado.tComp2 = setTimeout(comprobar, 400); }
+
+  // ───────── PASO 3: Informe BT / Certificado de Revisión BT y carpeta final ─────────
+  const DEF_MAP = Object.fromEntries((window.DEFECTOS_BT || []).map(d => [d.c, d]));
+  const UP = x => String(x || '').toLocaleUpperCase('es-ES').trim();
+  const oracion = x => { x = String(x || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('es-ES'); return x ? x.charAt(0).toLocaleUpperCase('es-ES') + x.slice(1) : ''; };
+  let DIRS = null;
+  const cargarDirs = () => DIRS || (DIRS = fetch('plantillas/direcciones.json').then(r => r.ok ? r.json() : {}).catch(() => ({})));
+  const LS_POB = 'bajatension.poblaciones', LS_TEC = 'bajatension.tecnicos';
+  function prepararPaso3() {
+    const inf = estado.informe; if (!inf) return;
+    $('p3Vacio').hidden = true; $('p3Form').hidden = false;
+    const prov = provinciaCentro(inf.centro);
+    $('p3Prov').innerHTML = PROVS.map(p => `<option${p === ($('selProv') ? $('selProv').value : prov.nombre) ? ' selected' : ''}>${esc(p)}</option>`).join('');
+    $('p3Cd').value = inf.centro;
+    $('p3Fecha').value = inf.fecha || fechaGestcd(inf.centro) || '';
+    $('p3Tec').value = prov.tecnico || $('p3Tec').value || '';
+    $('p3TecList').innerHTML = lsJson(LS_TEC, []).map(t => `<option value="${esc(t)}">`).join('');
+    const pobs = lsJson(LS_POB, {}); $('p3Pob').value = pobs[inf.centro] || '';
+    $('p3Dir').value = ''; $('p3DirInfo').textContent = 'Buscando la dirección…';
+    Promise.resolve(cargarDirs()).then(d => {
+      if (estado.informe !== inf) return;
+      const k = UP(inf.centro), r = d[k] != null ? d[k] : d[k.replace(/^0+/, '')];
+      if (r) { $('p3Dir').value = oracion(r); $('p3DirInfo').textContent = 'Dirección de la base de datos (puedes corregirla).'; }
+      else $('p3DirInfo').textContent = 'El centro no está en la base de datos de direcciones: escríbela.';
+    });
+    estado.p3Defs = inf.defectos.map(d => { const cod = UP(d.cod); return { apoyo: UP(d.apoyo), cod, des: UP(DEF_MAP[cod] ? DEF_MAP[cod].d : d.des), linea: UP(d.linea || inf.centro), obs: UP(d.obs) }; });
+    $('p3Defs').innerHTML = estado.p3Defs.length
+      ? `<details><summary>Tabla de defectos del documento (${estado.p3Defs.length}, sin ZOBX)</summary><table><tr><th>Apoyo</th><th>Línea</th><th>Código</th><th>Descripción</th><th>Observaciones</th></tr>${estado.p3Defs.map(d => `<tr><td>${esc(d.apoyo)}</td><td>${esc(d.linea)}</td><td>${esc(d.cod)}</td><td>${esc(d.des)}</td><td>${esc(d.obs)}</td></tr>`).join('')}</table></details>`
+      : '<div class="info">Sin defectos (solo ZOBX): el documento llevará «sin defectos».</div>';
+    $('res3').innerHTML = '';
+    pintarPaso3();
+  }
+  const esCert = () => esBoletin($('p3Prov').value);
+  function pintarPaso3() {
+    if (!estado.informe) return;
+    const cert = esCert(), ct = estado.informe.centro, doc = cert ? 'CERTIFICADO DE REVISION BT' : 'INFORME BT';
+    $('tituloPaso3').textContent = cert ? 'Certificado de Revisión BT' : 'Informe BT';
+    $('p3TecWrap').hidden = !cert;
+    let firma = null; try { firma = JSON.parse(localStorage.getItem('ibt_firma') || 'null'); } catch (e) {}
+    $('p3Firma').textContent = cert ? 'El certificado va sin firma (lo firma el ingeniero a mano).' : firma ? 'El informe lleva la firma guardada en este equipo (la de InformesConBT).' : 'No hay firma guardada en este equipo: el informe saldrá sin firmar (la firma se guarda en InformesConBT).';
+    $('p3Contenido').innerHTML = `La carpeta <b>${esc(ct)}</b> lleva: ANEXO I - ${esc(ct)}.kmz (el modificado), ANEXO I - ${esc(ct)}.jpg (la captura), ANEXO II, ANEXO III - ${esc(ct)}.xlsx, ${doc} - ${esc(ct)}.docx y FOTOS. El PDF lo sacas tú desde Word.`;
+  }
+  $('p3Prov').addEventListener('change', () => { lsSet('bajatension.prov', $('p3Prov').value); pintarPaso3(); });
+  $('p3Pob').addEventListener('input', () => { const m = lsJson(LS_POB, {}); m[$('p3Cd').value] = $('p3Pob').value; lsSet(LS_POB, JSON.stringify(m)); });
+  // captura del ANEXO I
+  zonaDrop($('dropCaptura'), $('fCaptura'), async files => {
+    const f = files.find(x => /^image\//.test(x.type) || /\.(jpe?g|png|webp|bmp)$/i.test(x.name)); if (!f) return;
+    try {
+      const bmp = await createImageBitmap(f);
+      const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+      const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(bmp, 0, 0, cv.width, cv.height);
+      const paraWord = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.88));
+      let original = f;
+      if (!/\.jpe?g$/i.test(f.name)) { const c2 = document.createElement('canvas'); c2.width = bmp.width; c2.height = bmp.height; const g2 = c2.getContext('2d'); g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height); g2.drawImage(bmp, 0, 0); original = await new Promise(r => c2.toBlob(r, 'image/jpeg', 0.92)); }
+      estado.captura = { word: { bytes: new Uint8Array(await paraWord.arrayBuffer()), type: 'image/jpeg', w: cv.width, h: cv.height }, jpg: original };
+      $('p3CapPrev').src = URL.createObjectURL(paraWord); $('p3CapPrev').hidden = false; $('btnQuitarCaptura').hidden = false;
+    } catch (e) { alert('No se pudo leer esa imagen.'); }
+  });
+  $('btnQuitarCaptura').addEventListener('click', () => { estado.captura = null; $('p3CapPrev').hidden = true; $('btnQuitarCaptura').hidden = true; });
+  const dataURLBytes = u => Uint8Array.from(atob(u.split(',')[1]), c => c.charCodeAt(0));
+  async function generarWord() {
+    const inf = estado.informe, cert = esCert();
+    const falta = [];
+    if (!$('p3Fecha').value) falta.push('la fecha');
+    if (!$('p3Dir').value.trim()) falta.push('la dirección');
+    if (!$('p3Pob').value.trim()) falta.push('la población');
+    if (cert && !$('p3Tec').value.trim()) falta.push('el técnico de campo');
+    if (falta.length) { alert('Falta ' + falta.join(', ') + '.'); return null; }
+    if (!estado.captura && !confirm('No has subido la captura del ANEXO I: el documento irá sin ella.\n\n¿Seguir?')) { resaltar('dropCaptura'); return null; }
+    if (cert) { const t = lsJson(LS_TEC, []), v = $('p3Tec').value.trim(); if (!t.includes(v)) { t.push(v); lsSet(LS_TEC, JSON.stringify(t.slice(-30))); } }
+    const r = await fetch(cert ? 'plantillas/plantilla_certificado.docx' : 'plantillas/plantilla.docx');
+    if (!r.ok) throw new Error('No encuentro la plantilla del documento.');
+    let firma = null; if (!cert) try { firma = JSON.parse(localStorage.getItem('ibt_firma') || 'null'); } catch (e) {}
+    let nombreTec = ''; try { nombreTec = JSON.parse(localStorage.getItem('ibt_nombre') || '""'); } catch (e) {}
+    const [y, m, d] = $('p3Fecha').value.split('-');
+    const data = {
+      nombre: nombreTec, tecnico: cert ? $('p3Tec').value.trim() : '', fecha: `${d}/${m}/${y}`, centro: UP(inf.centro), direccion: $('p3Dir').value.trim(), poblacion: $('p3Pob').value.trim(), provincia: $('p3Prov').value,
+      sinDefectos: !estado.p3Defs.length, defectos: estado.p3Defs, textoSinDefectos: cert ? 'SIN DEFECTOS DETECTADOS' : '',
+      firma: firma ? { bytes: dataURLBytes(firma.data), type: 'image/png', w: firma.w, h: firma.h } : null,
+      foto: estado.captura ? estado.captura.word : null
+    };
+    const docx = await MotorBT.generarDocx(new Uint8Array(await r.arrayBuffer()), data);
+    try { const mk = JSON.parse(localStorage.getItem('jdev_informes') || '{}'); mk[UP(inf.centro).replace(/^0+(?=\d)/, '')] = Date.now(); localStorage.setItem('jdev_informes', JSON.stringify(mk)); } catch (e) {}
+    return { blob: new Blob([docx], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), nombre: `${cert ? 'CERTIFICADO DE REVISION BT' : 'INFORME BT'} - ${inf.centro}.docx` };
+  }
+  async function conBoton(id, txt, fn) { const b = $(id), t = b.textContent; b.disabled = true; b.textContent = txt; try { await fn(); } catch (e) { console.error(e); $('res3').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; } finally { b.disabled = false; b.textContent = t; } }
+  $('btnWord').addEventListener('click', () => conBoton('btnWord', 'Generando…', async () => {
+    const w = await generarWord(); if (!w) return;
+    descargar(w.blob, w.nombre);
+    $('res3').innerHTML = `<div class="ok-box">✔ <b>${esc(w.nombre)}</b> descargado.</div>`;
+  }));
+  $('btnCarpetaFinal').addEventListener('click', () => conBoton('btnCarpetaFinal', 'Preparando la carpeta…', async () => {
+    const a3 = estado.anexo3, ct = estado.informe.centro;
+    const w = await generarWord(); if (!w) return;
+    const z = new JSZip(), raiz = z.folder(ct), avisos = [];
+    raiz.file(`ANEXO I - ${ct}.kmz`, a3.kmz.blob);
+    if (a3.kmz === estado.kmzGenerado) avisos.push('El KMZ de la carpeta es el recién generado, no uno modificado en Google Earth.');
+    if (estado.captura) raiz.file(`ANEXO I - ${ct}.jpg`, estado.captura.jpg); else avisos.push('Sin captura del ANEXO I.');
+    if (estado.anexo2) raiz.file(estado.anexo2.nombre, estado.anexo2.bytes); else avisos.push('Sin ANEXO II.');
+    raiz.file(a3.nombre, a3.blob);
+    raiz.file(w.nombre, w.blob);
+    const fotos = raiz.folder('FOTOS');
+    let nF = 0;
+    if (estado.fotos.length) {
+      const usados = new Set();
+      for (const f of estado.fotos) { let n = f.nombre, i = 2; while (usados.has(n.toLowerCase())) n = f.nombre.replace(/(\.\w+)$/, `_${i++}$1`); usados.add(n.toLowerCase()); fotos.file(n, await f.leer(), { compression: 'STORE' }); nF++; }
+    } else if (a3.kzip) {
+      // sin fotos cargadas (p. ej. tras recargar la página): las del KMZ, que ya están renombradas y redimensionadas
+      const fs = Object.keys(a3.kzip.files).filter(n => /^files\/[^/]+\.(jpe?g|png)$/i.test(n) && !/leyenda\.png$/i.test(n));
+      for (const n of fs) { fotos.file(n.slice(6), await a3.kzip.file(n).async('uint8array'), { compression: 'STORE' }); nF++; }
+      if (nF) avisos.push('FOTOS sale de las fotos que van dentro del KMZ (no tenías el ZIP de fotos cargado).');
+    }
+    if (!nF) avisos.push('La carpeta FOTOS va vacía.');
+    descargar(await z.generateAsync({ type: 'blob' }), `${ct}.zip`);
+    $('res3').innerHTML = `<div class="ok-box">✔ Carpeta <b>${esc(ct)}</b> descargada (${esc(ct)}.zip) con ${nF} fotos y ${esc(w.nombre)}.</div>${avisos.length ? listaAvisos(avisos, 't-aviso') : ''}`;
+  }));
 
   // ───────── secciones de los apoyos ─────────
   function selectorSeccion(valor, attrs) {
