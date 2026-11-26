@@ -873,7 +873,7 @@
     // centro: el más repetido según el VK
     const cnt = {}; filasM.forEach(x => { const c = ctDeVK(trim(x.c[iv])); if (c) cnt[c] = (cnt[c] || 0) + 1; });
     const ct = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || trim(filasM[0].c[1]);
-    const nota = (tabla, x, k, antes, despues, motivo) => cambios.push({ tabla, fila: x.i + 1, col: k, antes, despues, motivo });
+    const nota = (tabla, x, k, antes, despues, motivo, extra) => cambios.push(Object.assign({ tabla, fila: x.i + 1, col: k, antes, despues, motivo }, extra || {}));
     const quitar = new Set();
     filasM.forEach(x => {
       const c = x.c, colB = trim(c[1]), vk = trim(c[iv]), vkCT = ctDeVK(vk);
@@ -887,7 +887,7 @@
       const esperado = ct + p2(c[2]) + p2(c[3]) + p2(c[4]);
       if (vk !== esperado) {
         const motivo = !vk ? 'VK vacío' : /-/.test(vk) ? 'VK con guion' : vkCT !== ct ? 'errata de CT en el VK' : 'el VK no coincide con cuadro-salida-apoyo';
-        c[iv] = esperado; nota('POSICIONES', x, iv, vk, esperado, motivo);
+        c[iv] = esperado; nota('POSICIONES', x, iv, vk, esperado, motivo, { esVK: true, dep: vk });
         if (vk) mapaVK[vk] = esperado;
       }
       // rutas de las fotos de la fila: deben empezar por el VK de la fila
@@ -895,9 +895,45 @@
         if (k === iv || !esRuta(v)) return;
         const vr = vkDeRuta(v); if (!vr || vr === esperado) return;
         const nv = cambiarVKRuta(v, vr, esperado); if (nv === v) return;
-        c[k] = nv; nota('POSICIONES', x, k, v, nv, vr === vk ? 'ruta de la foto con el VK nuevo' : 'la ruta de la foto no coincide con el VK');
+        c[k] = nv; nota('POSICIONES', x, k, v, nv, vr === vk ? 'ruta de la foto con el VK nuevo' : 'la ruta de la foto no coincide con el VK', { dep: vk, ruta: true });
         mapaFotos[baseRuta(v).toLowerCase()] = baseRuta(nv);
       });
+    });
+    // Rutas corregidas: no pueden chocar con la foto de otra fila (mismo VK y misma etiqueta, p. ej. «…12.Imagen general 1»)
+    const claveFoto = v => baseRuta(v).toLowerCase().replace(/\.\d+\.(jpe?g|png|webp)$/i, '').replace(/\.(jpe?g|png|webp)$/i, '');
+    const usos = {};
+    filasM.forEach(x => { if (quitar.has(x.i)) return; x.c.forEach((v, k) => { if (k !== iv && esRuta(v) && vkDeRuta(v)) (usos[claveFoto(v)] = usos[claveFoto(v)] || []).push({ x, k }); }); });
+    const vkFila = {}; filasM.forEach(x => { if (!quitar.has(x.i)) vkFila[trim(x.c[iv])] = x.i + 1; });
+    // etiqueta habitual de cada columna de foto («.Imagen general 2», «.Imagen CGP-CGM 1»…), sacada de las filas correctas
+    const etiq = v => { const m = baseRuta(v).match(/^(?:PT\s*)?(?:\d{7,}|\d{5,}-\d+)(.*?)(\.\d+)?\.(jpe?g|png|webp)$/i); return m ? m[1] : null; };
+    const etiCol = {};
+    filasM.forEach(x => { if (quitar.has(x.i)) return; x.c.forEach((v, k) => { if (k !== iv && esRuta(v) && vkDeRuta(v) === trim(x.c[iv]) && !cambios.some(c => c.ruta && c.fila === x.i + 1 && c.col === k)) { const e = etiq(v); if (e != null) { const m = etiCol[k] = etiCol[k] || {}; m[e] = (m[e] || 0) + 1; } } }); });
+    const etiDe = k => { const m = etiCol[k]; return m ? Object.keys(m).sort((a, b) => m[b] - m[a])[0] : null; };
+    cambios.filter(c => c.ruta && c.tabla === 'POSICIONES').forEach(c => {
+      let otros = (usos[claveFoto(c.despues)] || []).filter(u => !(u.x.i + 1 === c.fila && u.k === c.col));
+      // si choca, probar con la etiqueta que suele llevar esa columna (p. ej. «Imagen general 2»)
+      const e0 = etiq(c.despues), e1 = etiDe(c.col);
+      if (otros.length && e0 != null && e1 != null && e1 !== e0) {
+        const alt = c.despues.replace(baseRuta(c.despues), baseRuta(c.despues).replace(e0, e1));
+        const otros2 = (usos[claveFoto(alt)] || []).filter(u => !(u.x.i + 1 === c.fila && u.k === c.col));
+        if (!otros2.length) {
+          const x = filasM.find(f => f.i + 1 === c.fila); x.c[c.col] = alt;
+          (usos[claveFoto(alt)] = usos[claveFoto(alt)] || []).push({ x, k: c.col });
+          const key = baseRuta(c.antes).toLowerCase(); if (mapaFotos[key]) mapaFotos[key] = baseRuta(alt);
+          c.despues = alt; c.motivo += ` (como «${e1.replace(/^\./, "").trim()}», que es lo que lleva esa columna, para no chocar con otra foto)`; otros = [];
+        }
+      }
+      const vOrig = vkDeRuta(c.antes), filaOrig = vkFila[vOrig];
+      if (otros.length) {
+        c.conflicto = true;
+        c.motivo += ` — ⚠ choca con la foto de la fila ${otros.map(u => u.x.i + 1).join(', ')}`;
+        revisar.push(`Fila ${c.fila}: la ruta corregida «${baseRuta(c.despues)}» choca con la foto de la fila ${otros.map(u => u.x.i + 1).join(', ')}. Si una está mal, suele haber otra mal: revisa las dos y corrige el nombre antes de aplicar.`);
+      } else if (filaOrig && filaOrig !== c.fila && c.dep !== vOrig) {
+        const vMia = trim(filasM.find(x => x.i + 1 === c.fila).c[iv]);
+        const cruzada = cambios.some(o => o.ruta && o.fila === filaOrig && vkDeRuta(o.antes) === vMia);
+        if (cruzada) { if (c.fila < filaOrig) revisar.push(`Las fotos de las filas ${c.fila} y ${filaOrig} estaban cruzadas: cada una pasa al VK de su fila.`); }
+        else revisar.push(`Fila ${c.fila}: su foto llevaba el VK ${vOrig}, que es el de la fila ${filaOrig}. Comprueba también las fotos de la fila ${filaOrig}.`);
+      }
     });
     // VK repetidos
     const vistos = {}; filasM.forEach(x => { if (quitar.has(x.i)) return; const v = trim(x.c[iv]); (vistos[v] = vistos[v] || []).push(x.i + 1); });
@@ -927,9 +963,9 @@
         if (nuevo) {
           c.forEach((v, k) => {
             const t = trim(v);
-            if (t === pos) { c[k] = nuevo; nota('DEFECTOS', x, k, t, nuevo, 'la posición cambió de VK'); }
-            else if (t.startsWith(pos) && /^[A-Z_]/i.test(t.slice(pos.length)) && !/[\/.]/.test(t)) { c[k] = nuevo + t.slice(pos.length); nota('DEFECTOS', x, k, t, c[k], 'Key con el VK nuevo'); }
-            else if (/Defecto_Images\/|\.Imagen/i.test(v) && vkDeRuta(v) === pos) { const nv = cambiarVKRuta(v, pos, nuevo, ctDeVK(nuevo)); if (nv !== v) { c[k] = nv; nota('DEFECTOS', x, k, v, nv, 'ruta de la imagen con el VK nuevo'); mapaFotos[baseRuta(v).toLowerCase()] = baseRuta(nv); } }
+            if (t === pos) { c[k] = nuevo; nota('DEFECTOS', x, k, t, nuevo, 'la posición cambió de VK', { dep: pos }); }
+            else if (t.startsWith(pos) && /^[A-Z_]/i.test(t.slice(pos.length)) && !/[\/.]/.test(t)) { c[k] = nuevo + t.slice(pos.length); nota('DEFECTOS', x, k, t, c[k], 'Key con el VK nuevo', { dep: pos }); }
+            else if (/Defecto_Images\/|\.Imagen/i.test(v) && vkDeRuta(v) === pos) { const nv = cambiarVKRuta(v, pos, nuevo, ctDeVK(nuevo)); if (nv !== v) { c[k] = nv; nota('DEFECTOS', x, k, v, nv, 'ruta de la imagen con el VK nuevo', { dep: pos, ruta: true }); mapaFotos[baseRuta(v).toLowerCase()] = baseRuta(nv); } }
           });
           pos = nuevo;
         }

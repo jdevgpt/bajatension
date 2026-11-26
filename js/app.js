@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.10.0';
+  const APP_VERSION = '1.11.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -635,8 +635,8 @@
     if (estado.revPendiente) {
       const nP = r.cambios.filter(c => c.tabla === 'POSICIONES').length, nD = r.cambios.length - nP;
       h += `<div class="num-box"><b>⚠ Datos cruzados de AppSheet</b> en el centro ${esc(r.ct)}: ${r.cambios.length} celda${r.cambios.length === 1 ? '' : 's'} que corregir (${nP} en posiciones, ${nD} en defectos)${r.quitadas.length ? ` y ${r.quitadas.length} fila${r.quitadas.length === 1 ? '' : 's'} de otro centro` : ''}.
-        <div class="info">Todavía no se ha cambiado nada: revisa la lista y pulsa «Aplicar correcciones». El VK y el nombre de las fotos mandan sobre la columna CT; el VK se rehace con CT + cuadro + salida + apoyo; los negativos pasan a positivos; las rutas de las fotos que no coinciden con el VK, los defectos y las fotos del ZIP pasan al VK de su fila.</div>
-        ${tablaCambios(r)}
+        <div class="info">Todavía no se ha cambiado nada: revisa la lista, corrige cualquier valor propuesto que no sea correcto (se pueden editar) y pulsa «Aplicar correcciones». El VK y el nombre de las fotos mandan sobre la columna CT; el VK se rehace con CT + cuadro + salida + apoyo; los negativos pasan a positivos; las rutas de las fotos que no coinciden con el VK, los defectos y las fotos del ZIP pasan al VK de su fila.</div>
+        ${tablaCambios(r, true)}
         <div class="acciones" style="margin-top:8px"><button class="peq" id="btnAplicarRev">Aplicar correcciones</button></div></div>`;
     } else if (ap) {
       h += `<div class="num-box ok">✔ Correcciones de AppSheet aplicadas: ${ap.cambios.length} celda${ap.cambios.length === 1 ? '' : 's'}${ap.quitadas.length ? `, ${ap.quitadas.length} fila${ap.quitadas.length === 1 ? '' : 's'} de otro centro quitada${ap.quitadas.length === 1 ? '' : 's'}` : ''}${Object.keys(estado.mapaVK).length ? ` y ${Object.keys(estado.mapaVK).length} VK cambiado${Object.keys(estado.mapaVK).length === 1 ? '' : 's'} (las fotos del ZIP se renombran con el VK nuevo)` : ''}.
@@ -646,28 +646,58 @@
     if (r && r.revisar.length) h += `<div style="margin-top:6px">${listaAvisos(r.revisar, 't-aviso')}</div>`;
     zona.innerHTML = h;
   }
-  function tablaCambios(r) {
-    const filas = r.cambios.map(c => `<tr><td>${c.tabla}</td><td>${letraCol(c.col)}${c.fila}</td><td>${esc(c.antes)}</td><td>${esc(c.despues)}</td><td>${esc(c.motivo)}</td></tr>`).join('')
-      + r.quitadas.map(q => `<tr class="t-aviso"><td>${q.tabla || 'POSICIONES'}</td><td>fila ${q.fila}</td><td>${esc(q.vk)}</td><td>(fila quitada)</td><td>${esc(q.motivo)}</td></tr>`).join('');
-    return `<details${r.cambios.length + r.quitadas.length <= 12 ? ' open' : ''}><summary>Cambios (${r.cambios.length + r.quitadas.length})</summary><div class="scroll" style="max-height:320px"><table class="revt"><colgroup><col style="width:92px"><col style="width:58px"><col><col><col style="width:22%"></colgroup><tr><th>Tabla</th><th>Celda</th><th>Antes</th><th>Después</th><th>Motivo</th></tr>${filas}</table></div></details>`;
+  function tablaCambios(r, editable) {
+    const filas = r.cambios.map((c, i) => `<tr${c.conflicto ? ' class="t-aviso" style="background:#fdecea"' : ''}><td>${c.tabla}</td><td>${letraCol(c.col)}${c.fila}</td><td>${esc(c.antes)}</td><td>${editable
+        ? `<input class="rv-in campo" style="margin:0;padding:4px 6px;font-size:12px" data-i="${i}"${c.dep ? ` data-dep="${esc(c.dep)}"` : ''}${c.esVK ? ` data-vk="${esc(c.dep)}" data-prev="${esc(c.despues)}"` : ''} value="${esc(c.despues)}">`
+        : esc(c.despues)}</td><td>${esc(c.motivo)}</td></tr>`).join('')
+      + r.quitadas.map((q, i) => `<tr class="t-aviso"><td>${q.tabla || 'POSICIONES'}</td><td>fila ${q.fila}</td><td>${esc(q.vk)}</td><td>${editable ? `<label><input type="checkbox" class="rv-q" data-i="${i}" checked> quitar la fila</label>` : '(fila quitada)'}</td><td>${esc(q.motivo)}</td></tr>`).join('');
+    return `<details${editable || r.cambios.length + r.quitadas.length <= 12 ? ' open' : ''}><summary>Cambios (${r.cambios.length + r.quitadas.length})</summary><div class="scroll" style="max-height:320px"><table class="revt"><colgroup><col style="width:92px"><col style="width:58px"><col><col><col style="width:22%"></colgroup><tr><th>Tabla</th><th>Celda</th><th>Antes</th><th>Después</th><th>Motivo</th></tr>${filas}</table></div></details>`;
   }
   function aplicarRevision() {
     const r = estado.revPendiente; if (!r) return;
+    // valores elegidos (los propuestos o los que se hayan editado)
+    const val = i => { const el = $('revAppsheet').querySelector(`.rv-in[data-i="${i}"]`); return el ? el.value.trim() : r.cambios[i].despues; };
+    const cambios = r.cambios.map((c, i) => Object.assign({}, c, { despues: val(i) }));
+    const quitadas = r.quitadas.filter((q, i) => { const el = $('revAppsheet').querySelector(`.rv-q[data-i="${i}"]`); return !el || el.checked; });
+    const vacios = cambios.filter(c => !c.despues && c.antes);
+    if (vacios.length && !confirm(`Has dejado vacío${vacios.length === 1 ? '' : 's'} ${vacios.length} valor${vacios.length === 1 ? '' : 'es'} (${vacios.map(c => letraCol(c.col) + c.fila).join(', ')}). ¿Aplicar igualmente?`)) return;
+    const editar = (texto, tabla) => {
+      const sep = /\t/.test(texto) ? '\t' : ';';
+      const lin = String(texto || '').replace(/\r\n?/g, '\n').split('\n');
+      cambios.filter(c => c.tabla === tabla).forEach(c => { const cs = (lin[c.fila - 1] || '').split(sep); while (cs.length <= c.col) cs.push(''); cs[c.col] = c.despues; lin[c.fila - 1] = cs.join(sep); });
+      const fuera = new Set(quitadas.filter(q => (q.tabla || 'POSICIONES') === tabla).map(q => q.fila - 1));
+      return lin.filter((l, i) => !fuera.has(i)).join('\n');
+    };
+    const mainNuevo = editar($('txtMain').value, 'POSICIONES'), defNuevo = $('txtDef').value.trim() ? editar($('txtDef').value, 'DEFECTOS') : $('txtDef').value;
     estado.revDeshacer = { main: $('txtMain').value, def: $('txtDef').value, mapa: Object.assign({}, estado.mapaVK), mapaF: Object.assign({}, estado.mapaFotos), ap: estado.revAplicada };
-    estado.mapaFotos = Object.assign({}, estado.mapaFotos, r.mapaFotos); lsSet(LS.vkf, JSON.stringify(estado.mapaFotos));
-    // mapa acumulado: si un VK ya se había cambiado, se encadena
+    // fotos del ZIP: VK cambiados y fotos concretas de las rutas corregidas
+    const base = v => String(v || '').split('/').pop().trim();
+    const nuevoVK = {}, nuevasF = {};
+    cambios.forEach(c => {
+      if (c.esVK && c.antes && c.despues && c.antes !== c.despues) nuevoVK[c.antes] = c.despues;
+      if (c.ruta && base(c.antes) && base(c.despues) && base(c.antes) !== base(c.despues)) nuevasF[base(c.antes).toLowerCase()] = base(c.despues);
+    });
     const mapa = Object.assign({}, estado.mapaVK);
-    Object.keys(mapa).forEach(k => { if (r.mapaVK[mapa[k]]) mapa[k] = r.mapaVK[mapa[k]]; });
-    Object.keys(r.mapaVK).forEach(k => { if (!(k in mapa)) mapa[k] = r.mapaVK[k]; });
+    Object.keys(mapa).forEach(k => { if (nuevoVK[mapa[k]]) mapa[k] = nuevoVK[mapa[k]]; });
+    Object.keys(nuevoVK).forEach(k => { if (!(k in mapa)) mapa[k] = nuevoVK[k]; });
     estado.mapaVK = mapa; lsSet(LS.vk, JSON.stringify(mapa));
+    estado.mapaFotos = Object.assign({}, estado.mapaFotos, nuevasF); lsSet(LS.vkf, JSON.stringify(estado.mapaFotos));
     const prev = estado.revAplicada || { cambios: [], quitadas: [] };
-    estado.revAplicada = { ct: r.ct, cambios: prev.cambios.concat(r.cambios), quitadas: prev.quitadas.concat(r.quitadas) };
+    estado.revAplicada = { ct: r.ct, cambios: prev.cambios.concat(cambios), quitadas: prev.quitadas.concat(quitadas) };
     lsSet(LS.rev, JSON.stringify(estado.revAplicada));
-    $('txtMain').value = r.mainText; lsSet(LS.main, r.mainText);
-    $('txtDef').value = r.defText; lsSet(LS.def, r.defText);
+    $('txtMain').value = mainNuevo; lsSet(LS.main, mainNuevo);
+    $('txtDef').value = defNuevo; lsSet(LS.def, defNuevo);
     ['txtMain', 'txtDef'].forEach(id => $(id).dispatchEvent(new Event('input')));
     if (estado.fotos.length) { renombrarCampo(); pintarFotos(); }
   }
+  $('revAppsheet').addEventListener('input', e => {
+    const inp = e.target; if (!inp.classList.contains('rv-in')) return;
+    inp.dataset.editado = '1';
+    if (inp.dataset.vk == null) return;
+    const prev = inp.dataset.prev, nuevo = inp.value.trim(); if (!prev || !nuevo || prev === nuevo) return;
+    $('revAppsheet').querySelectorAll(`.rv-in[data-dep="${CSS.escape(inp.dataset.vk)}"]`).forEach(o => { if (o !== inp && !o.dataset.editado) o.value = o.value.split(prev).join(nuevo); });
+    inp.dataset.prev = nuevo;
+  });
   $('revAppsheet').addEventListener('click', async e => {
     if (e.target.id === 'btnAplicarRev') aplicarRevision();
     else if (e.target.id === 'btnDeshacerRev') {
