@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.7.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -748,7 +748,7 @@
       const etiqueta = i === 0 ? '' : (f.compartidas[i - 1] ? `Compartido con ${C.salName(f.compartidas[i - 1].salida)}` : `Sección ${i + 1}`);
       const quitar = i > 0 && !f.compartidas[i - 1] ? '<button type="button" class="sec peq sx" title="Quitar esta sección">×</button>'
         : i > 0 ? `<button type="button" class="sec peq sxsal" data-sal="${f.compartidas[i - 1].salida}" title="Quitar esta salida del tramo">×</button>` : '';
-      h += i === 0 ? `<div class="comp" style="margin-top:0">${selectorSeccion(partes[0] || '', 'data-p="0"')}<button type="button" class="sec peq smas">+ sección</button><button type="button" class="sec peq ssal" title="Otra salida va también por el tramo que llega a este apoyo (línea paralela)">+ salida</button></div>`
+      h += i === 0 ? `<div class="comp" style="margin-top:0">${selectorSeccion(partes[0] || '', 'data-p="0"')}<button type="button" class="sec peq smas">+ sección</button><button type="button" class="sec peq ssal" title="Otra salida va también por el tramo que llega a este apoyo (línea paralela)">+ salida</button><button type="button" class="sec peq scop" title="Copiar las secciones y salidas de este apoyo para pegarlas en otros">Copiar</button></div>`
         : `<div class="comp">${etiqueta}: ${selectorSeccion(partes[i] || '', `data-p="${i}"`)}${quitar}</div>`;
     }
     return h;
@@ -769,7 +769,10 @@
       <label>Desde apoyo<input id="sbDe" type="number" min="1"></label><label>Hasta apoyo<input id="sbA" type="number" min="1"></label>
       <label>Sección${selectorSeccion('', 'id="sbSec"')}</label><button class="peq" id="btnSecBulk">Aplicar</button>
       <label>o va también la salida<input id="sbComp" type="number" min="1" style="width:70px"></label><button class="peq sec" id="btnCompBulk">Añadir salida</button></div>`;
-    h += `<div class="scroll"><table class="tsec"><tr><th>Apoyo</th><th>Salida</th><th>Sección</th></tr>` + filas.map((f, i) => `<tr data-i="${i}"><td><b>${esc(f.apoyo)}</b> <span class="info">${esc(f.r.node.name)}</span></td><td>${varios ? 'C' + f.cuadro + ' ' : ''}${C.salName(f.salida)}</td><td>${celdaSecciones(f)}</td></tr>`).join('') + '</table></div>';
+    const cl = estado.clipSecc;
+    if (cl) h += `<div class="num-box" id="barraPegar" style="margin:8px 0">📋 Copiado el <b>apoyo ${esc(cl.de)}</b>: ${esc(cl.resumen)}. Marca los apoyos donde pegarlo
+      <div class="acciones" style="margin-top:6px"><button class="peq" id="btnPegar">Pegar en los marcados</button><button class="sec peq" id="btnMarcarSal">Marcar todos los de ${esc(C.salName(cl.salida))}</button><button class="sec peq" id="btnCancelarCopia">Cancelar</button></div></div>`;
+    h += `<div class="scroll"><table class="tsec"><tr>${cl ? '<th></th>' : ''}<th>Apoyo</th><th>Salida</th><th>Sección</th></tr>` + filas.map((f, i) => `<tr data-i="${i}">${cl ? `<td><input type="checkbox" class="spegar"${f.cuadro === cl.f.cuadro && f.salida === cl.f.salida && f.apoyo === cl.f.apoyo ? ' disabled' : ''}></td>` : ''}<td><b>${esc(f.apoyo)}</b> <span class="info">${esc(f.r.node.name)}</span></td><td>${varios ? 'C' + f.cuadro + ' ' : ''}${C.salName(f.salida)}</td><td>${celdaSecciones(f)}</td></tr>`).join('') + '</table></div>';
     h += '<div class="info">Los cambios se escriben en la tabla de posiciones (columna SECCIÓN) y salen en el KMZ y en el ANEXO III. Con varias secciones en un apoyo la celda queda como «RZ95 / RZ50» (la de su salida primero).<br><b>+ salida</b>: otra salida va también por el tramo que llega a ese apoyo (circuito doble). Se dibuja su línea paralela en el KMZ, sus metros cuentan en el KMZ y en el ANEXO III, y aquí puedes ponerle su sección. Se anota en el recuadro «Recorrido de salidas…» de abajo.</div>';
     zona.innerHTML = h;
   }
@@ -824,6 +827,56 @@
       return;
     }
     if (e.target.classList.contains('sxsal')) { quitarSalidaTramo(f, +e.target.dataset.sal); return; }
+  });
+
+
+  // ── Copiar / pegar secciones y salidas compartidas entre apoyos ──
+  function copiarApoyo(f, tr) {
+    const sels = [...tr.querySelectorAll('select:not(.ssel)')].map(x => x.value === '__otra' ? '' : x.value);
+    const comp = {}; f.compartidas.forEach((c, i) => { comp[c.salida] = sels[i + 1] || ''; });
+    const extras = sels.slice(1 + f.compartidas.length).filter(Boolean);
+    const partes = [sels[0] ? `${C.salName(f.salida)} ${sels[0]}` : C.salName(f.salida)].concat(f.compartidas.map(c => `${C.salName(c.salida)}${comp[c.salida] ? ' ' + comp[c.salida] : ''}`), extras);
+    estado.clipSecc = { f, de: f.apoyo + ' (' + C.salName(f.salida) + ')', salida: f.salida, propia: sels[0] || '', comp, extras, resumen: partes.join(' · ') };
+    pintarSecciones();
+  }
+  function pegarEn(objetivos) {
+    const cl = estado.clipSecc; if (!cl || !objetivos.length) return;
+    // 1) salidas compartidas: una línea «SALxx a-b SALyy» por tramo
+    const ls = $('txtComp').value.split(/\r?\n/).filter(x => x.trim());
+    const sinTramo = [];
+    objetivos.forEach(f => {
+      const t = tramoQueLlega(f);
+      Object.keys(cl.comp).map(Number).forEach(d => {
+        if (d === f.salida) return;
+        if (!t) { sinTramo.push(f.apoyo); return; }
+        const l = lineaComp(f, t, d); if (!ls.some(x => normLinea(x) === normLinea(l))) ls.push(l);
+      });
+    });
+    $('txtComp').value = ls.join('\n'); lsSet(LS.comp, $('txtComp').value);
+    // 2) secciones, en el orden de salidas que tenga cada apoyo después de compartir
+    const m2 = modeloDesdeTablas(), f2 = C.filasSecciones(m2);
+    const clave = f => `${f.cuadro}|${f.salida}|${f.apoyo}`, objs = new Set(objetivos.map(clave));
+    const cambios = f2.filter(f => objs.has(clave(f))).map(f => {
+      const partes = [cl.propia].concat(f.compartidas.map(c => cl.comp[c.salida] != null ? cl.comp[c.salida] : (f.partes[f.compartidas.indexOf(c) + 1] || '')), cl.extras);
+      while (partes.length > 1 && !partes[partes.length - 1]) partes.pop();
+      return { r: f.r, seccion: partes.join(' / ') };
+    });
+    const txt = C.editarTabla($('txtMain').value, m2, cambios);
+    $('txtMain').value = txt; lsSet(LS.main, txt); infoTabla($('txtMain'), 'infoMain');
+    estado.clipSecc = null;
+    pintarSecciones(); pintarNumeracion();
+    $('secciones').querySelectorAll('tr[data-i]').forEach(tr => { const f = estado.secc.filas[+tr.dataset.i]; if (objs.has(clave(f))) tr.classList.add('mod'); });
+    if (sinTramo.length) alert(`No se ha podido compartir la salida en ${sinTramo.length === 1 ? 'el apoyo' : 'los apoyos'} ${[...new Set(sinTramo)].join(', ')}: no tienen tramo que llegue a ellos (revisa INICIO/FIN). Las secciones sí se han pegado.`);
+  }
+  $('secciones').addEventListener('click', e => {
+    if (e.target.classList.contains('scop')) { const tr = e.target.closest('tr[data-i]'); copiarApoyo(estado.secc.filas[+tr.dataset.i], tr); return; }
+    if (e.target.id === 'btnCancelarCopia') { estado.clipSecc = null; pintarSecciones(); return; }
+    if (e.target.id === 'btnMarcarSal') { const sal = estado.clipSecc.salida; $('secciones').querySelectorAll('tr[data-i]').forEach(tr => { const c = tr.querySelector('.spegar'); if (c && !c.disabled && estado.secc.filas[+tr.dataset.i].salida === sal) c.checked = true; }); return; }
+    if (e.target.id === 'btnPegar') {
+      const objs = [...$('secciones').querySelectorAll('tr[data-i]')].filter(tr => { const c = tr.querySelector('.spegar'); return c && c.checked; }).map(tr => estado.secc.filas[+tr.dataset.i]);
+      if (!objs.length) return alert('Marca primero los apoyos donde quieres pegar.');
+      pegarEn(objs);
+    }
   });
 
   function guardarSecciones(cambios) {
