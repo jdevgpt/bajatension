@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.9.0';
+  const APP_VERSION = '1.10.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -9,7 +9,7 @@
   const estado = { fotos: [], kmzGenerado: null, kmzModificado: null, modelo: null };
 
   // ───────── persistencia de las tablas (solo texto) ─────────
-  const LS = { main: 'bajatension.main', def: 'bajatension.def', suf: 'bajatension.suf1', comp: 'bajatension.comp', orig: 'bajatension.orig', mapa: 'bajatension.mapa', vk: 'bajatension.mapaVK', rev: 'bajatension.revAppsheet' };
+  const LS = { main: 'bajatension.main', def: 'bajatension.def', suf: 'bajatension.suf1', comp: 'bajatension.comp', orig: 'bajatension.orig', mapa: 'bajatension.mapa', vk: 'bajatension.mapaVK', vkf: 'bajatension.mapaFotos', rev: 'bajatension.revAppsheet' };
   function lsJson(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
   const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } };
@@ -128,7 +128,7 @@
     }
     const ct = ctTabla(); estado.ctFotos = ct;
     if (!ct) { estado.fotos.forEach(f => { f.orig = f.crudo; f.nombre = renombrar(f.orig); f.campo = null; }); return; }
-    const r = C.renombrarFotosCampo(estado.fotos.map(f => (f.crudoVK = C.corregirNombreFoto(f.crudo, estado.mapaVK || {}))), ct);
+    const r = C.renombrarFotosCampo(estado.fotos.map(f => (f.crudoVK = C.corregirNombreFoto(f.crudo, estado.mapaVK || {}, estado.mapaFotos || {}))), ct);
     estado.fotos.forEach((f, i) => { f.campo = r[i]; f.orig = r[i].nuevo; f.nombre = renombrar(f.orig); });
   }
   // Redimensiona para que quepa en 1366×768 (una vertical queda 576×768), sin agrandar; JPEG calidad 0,9
@@ -268,10 +268,10 @@
     estado.miniaturas = new Map(); estado.fotoElegida = {}; estado.avisoRegenerar = false; estado.fotosMarcadas = false; estado.tablaAvisada = null;
     (estado.fotos || []).concat(estado.descartadas || []).forEach(f => { if (f.mini) f.mini.then(u => URL.revokeObjectURL(u)).catch(() => {}); });
     estado.captura = null; estado.anexo3 = null; estado.p3Defs = []; estado.gruposRep = null; estado.revDeshacer = null; estado.carpetaHecha = false; estado.ctFotos = '';
-    estado.fotos = []; estado.descartadas = []; estado.mapaVK = {}; estado.revAplicada = null; estado.revPendiente = null; estado.kmzGenerado = null; estado.kmzModificado = null; estado.kmzLeido = null; estado.modelo = null; estado.informe = null;
+    estado.fotos = []; estado.descartadas = []; estado.mapaVK = {}; estado.mapaFotos = {}; estado.revAplicada = null; estado.revPendiente = null; estado.kmzGenerado = null; estado.kmzModificado = null; estado.kmzLeido = null; estado.modelo = null; estado.informe = null;
     clearTimeout(estado.tGrav);
     // memoria del navegador (el orden de gravedad es un ajuste y se conserva)
-    [LS.main, LS.def, LS.suf, LS.comp, LS.orig, LS.mapa, LS.vk, LS.rev, 'jdev_kmz_informe'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    [LS.main, LS.def, LS.suf, LS.comp, LS.orig, LS.mapa, LS.vk, LS.vkf, LS.rev, 'jdev_kmz_informe'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     pintarFotos(); actualizarBtnExcel(); pintarNumeracion(); $('detSecc').open = false; $('secciones').innerHTML = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
@@ -623,7 +623,7 @@
 
 
   // ───────── Revisión de las tablas de AppSheet (CT / VK / fotos cruzados) ─────────
-  estado.mapaVK = lsJson(LS.vk, {}); estado.revAplicada = lsJson(LS.rev, null);
+  estado.mapaVK = lsJson(LS.vk, {}); estado.mapaFotos = lsJson(LS.vkf, {}); estado.revAplicada = lsJson(LS.rev, null);
   const letraCol = k => { let s = ''; k++; while (k > 0) { const r = (k - 1) % 26; s = String.fromCharCode(65 + r) + s; k = Math.floor((k - 1) / 26); } return s; };
   function revisarTablas() {
     const zona = $('revAppsheet'); if (!zona) return;
@@ -635,7 +635,7 @@
     if (estado.revPendiente) {
       const nP = r.cambios.filter(c => c.tabla === 'POSICIONES').length, nD = r.cambios.length - nP;
       h += `<div class="num-box"><b>⚠ Datos cruzados de AppSheet</b> en el centro ${esc(r.ct)}: ${r.cambios.length} celda${r.cambios.length === 1 ? '' : 's'} que corregir (${nP} en posiciones, ${nD} en defectos)${r.quitadas.length ? ` y ${r.quitadas.length} fila${r.quitadas.length === 1 ? '' : 's'} de otro centro` : ''}.
-        <div class="info">El VK y el nombre de las fotos mandan sobre la columna CT; el VK se rehace con CT + cuadro + salida + apoyo; los negativos pasan a positivos; las rutas de las fotos, los defectos y las fotos del ZIP pasan al VK nuevo.</div>
+        <div class="info">Todavía no se ha cambiado nada: revisa la lista y pulsa «Aplicar correcciones». El VK y el nombre de las fotos mandan sobre la columna CT; el VK se rehace con CT + cuadro + salida + apoyo; los negativos pasan a positivos; las rutas de las fotos que no coinciden con el VK, los defectos y las fotos del ZIP pasan al VK de su fila.</div>
         ${tablaCambios(r)}
         <div class="acciones" style="margin-top:8px"><button class="peq" id="btnAplicarRev">Aplicar correcciones</button></div></div>`;
     } else if (ap) {
@@ -653,7 +653,8 @@
   }
   function aplicarRevision() {
     const r = estado.revPendiente; if (!r) return;
-    estado.revDeshacer = { main: $('txtMain').value, def: $('txtDef').value, mapa: Object.assign({}, estado.mapaVK), ap: estado.revAplicada };
+    estado.revDeshacer = { main: $('txtMain').value, def: $('txtDef').value, mapa: Object.assign({}, estado.mapaVK), mapaF: Object.assign({}, estado.mapaFotos), ap: estado.revAplicada };
+    estado.mapaFotos = Object.assign({}, estado.mapaFotos, r.mapaFotos); lsSet(LS.vkf, JSON.stringify(estado.mapaFotos));
     // mapa acumulado: si un VK ya se había cambiado, se encadena
     const mapa = Object.assign({}, estado.mapaVK);
     Object.keys(mapa).forEach(k => { if (r.mapaVK[mapa[k]]) mapa[k] = r.mapaVK[mapa[k]]; });
@@ -671,9 +672,9 @@
     if (e.target.id === 'btnAplicarRev') aplicarRevision();
     else if (e.target.id === 'btnDeshacerRev') {
       const d = estado.revDeshacer;
-      if (!d) { if (!confirm('Se borra el registro de correcciones y el cambio de nombres de las fotos. Las tablas se quedan como están (pega de nuevo las originales si quieres volver atrás). ¿Seguir?')) return; estado.mapaVK = {}; estado.revAplicada = null; }
-      else { estado.mapaVK = d.mapa; estado.revAplicada = d.ap; $('txtMain').value = d.main; $('txtDef').value = d.def; lsSet(LS.main, d.main); lsSet(LS.def, d.def); estado.revDeshacer = null; }
-      lsSet(LS.vk, JSON.stringify(estado.mapaVK)); lsSet(LS.rev, JSON.stringify(estado.revAplicada));
+      if (!d) { if (!confirm('Se borra el registro de correcciones y el cambio de nombres de las fotos. Las tablas se quedan como están (pega de nuevo las originales si quieres volver atrás). ¿Seguir?')) return; estado.mapaVK = {}; estado.mapaFotos = {}; estado.revAplicada = null; }
+      else { estado.mapaVK = d.mapa; estado.mapaFotos = d.mapaF || {}; estado.revAplicada = d.ap; $('txtMain').value = d.main; $('txtDef').value = d.def; lsSet(LS.main, d.main); lsSet(LS.def, d.def); estado.revDeshacer = null; }
+      lsSet(LS.vk, JSON.stringify(estado.mapaVK)); lsSet(LS.vkf, JSON.stringify(estado.mapaFotos)); lsSet(LS.rev, JSON.stringify(estado.revAplicada));
       ['txtMain', 'txtDef'].forEach(id => $(id).dispatchEvent(new Event('input')));
       if (estado.fotos.length) { renombrarCampo(); pintarFotos(); }
     }
@@ -687,7 +688,7 @@
       const filas = [['Tabla', 'Fila', 'Celda', 'Antes', 'Después', 'Motivo']].concat(
         ap.cambios.map(c => [c.tabla, c.fila, letraCol(c.col) + c.fila, c.antes, c.despues, c.motivo]),
         ap.quitadas.map(x => [x.tabla || 'POSICIONES', x.fila, '', x.vk, 'fila quitada', x.motivo]),
-        [[]], [['Fotos del ZIP', '', '', 'VK antiguo', 'VK nuevo', '']], Object.keys(estado.mapaVK).map(k => ['', '', '', k, estado.mapaVK[k], 'las fotos que empiezan por el VK antiguo se renombran']));
+        [[]], [['Fotos del ZIP', '', '', 'Nombre / VK antiguo', 'Nombre / VK nuevo', '']], Object.keys(estado.mapaFotos).map(k => ['', '', '', k, estado.mapaFotos[k], 'foto renombrada (ruta corregida)']), Object.keys(estado.mapaVK).map(k => ['', '', '', k, estado.mapaVK[k], 'el resto de fotos que empiezan por el VK antiguo']));
       descargar(new Blob(['﻿' + filas.map(f => f.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' }), `Cambios AppSheet - ${ap.ct}.csv`);
     }
   });

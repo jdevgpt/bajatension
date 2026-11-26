@@ -847,6 +847,7 @@
   const ctDeVK = vk => /^\d{7,}$/.test(vk) ? vk.slice(0, -6) : (/^\d{5,}-\d+$/.test(vk) ? vk.split('-')[0].slice(0, -4) : '');
   const p2 = x => String(Math.abs(parseInt(x, 10) || 0)).padStart(2, '0');
   // nombre de archivo de una ruta y su VK inicial («Posicione_Images/2329010106.Imagen general 1.163904.jpg» → 2329010106)
+  const baseRuta = r => String(r || '').split('/').pop().trim();
   const vkDeRuta = r => { const b = String(r || '').split('/').pop(); const m = b.match(/^(?:PT\s*)?(\d{7,}|\d{5,}-\d+)(?=[^\d-]|$)/i); return m ? m[1] : ''; };
   // cambia el VK al principio del nombre de archivo de una ruta (manteniendo carpetas y el resto del nombre)
   function cambiarVKRuta(ruta, viejo, nuevo, ctNuevo) {
@@ -858,16 +859,16 @@
     return partes.concat(m[1] + nuevo + b.slice(m[0].length)).join('/');
   }
   function revisarAppsheet(mainText, defText) {
-    const cambios = [], quitadas = [], revisar = [], mapaVK = {};
+    const cambios = [], quitadas = [], revisar = [], mapaVK = {}, mapaFotos = {};
     const sepM = /\t/.test(mainText) ? '\t' : ';', sepD = /\t/.test(defText || '') ? '\t' : ';';
     const lineasM = String(mainText || '').replace(/\r\n?/g, '\n').split('\n');
     const filasM = lineasM.map((l, i) => ({ i, l, c: l.split(sepM) })).filter(x => x.l.trim() !== '' && /^-?\d+$/.test(trim(x.c[1] || '')));
-    if (!filasM.length) return { mainText, defText, cambios, quitadas, revisar, mapaVK, ct: '' };
+    if (!filasM.length) return { mainText, defText, cambios, quitadas, revisar, mapaVK, mapaFotos, ct: '' };
     // columna del VK: la que más celdas tiene con forma de VK (fuera de las 5 primeras)
     const nCol = Math.max(...filasM.map(x => x.c.length));
     let iv = -1, best = 0;
     for (let k = 5; k < nCol; k++) { const n = filasM.filter(x => RE_VK.test(trim(x.c[k] || ''))).length; if (n > best) { best = n; iv = k; } }
-    if (iv < 0 || best < filasM.length / 2) return { mainText, defText, cambios, quitadas, revisar: ['No encuentro la columna VK Posiciones en la tabla: no se revisa.'], mapaVK, ct: '' };
+    if (iv < 0 || best < filasM.length / 2) return { mainText, defText, cambios, quitadas, revisar: ['No encuentro la columna VK Posiciones en la tabla: no se revisa.'], mapaVK, mapaFotos, ct: '' };
     const esRuta = v => /Posicione_Images\/|\.Imagen/i.test(v);
     // centro: el más repetido según el VK
     const cnt = {}; filasM.forEach(x => { const c = ctDeVK(trim(x.c[iv])); if (c) cnt[c] = (cnt[c] || 0) + 1; });
@@ -888,8 +889,15 @@
         const motivo = !vk ? 'VK vacío' : /-/.test(vk) ? 'VK con guion' : vkCT !== ct ? 'errata de CT en el VK' : 'el VK no coincide con cuadro-salida-apoyo';
         c[iv] = esperado; nota('POSICIONES', x, iv, vk, esperado, motivo);
         if (vk) mapaVK[vk] = esperado;
-        c.forEach((v, k) => { if (k !== iv && esRuta(v) && vkDeRuta(v) === vk) { const nv = cambiarVKRuta(v, vk, esperado); if (nv !== v) { c[k] = nv; nota('POSICIONES', x, k, v, nv, 'ruta de la foto con el VK nuevo'); } } });
       }
+      // rutas de las fotos de la fila: deben empezar por el VK de la fila
+      c.forEach((v, k) => {
+        if (k === iv || !esRuta(v)) return;
+        const vr = vkDeRuta(v); if (!vr || vr === esperado) return;
+        const nv = cambiarVKRuta(v, vr, esperado); if (nv === v) return;
+        c[k] = nv; nota('POSICIONES', x, k, v, nv, vr === vk ? 'ruta de la foto con el VK nuevo' : 'la ruta de la foto no coincide con el VK');
+        mapaFotos[baseRuta(v).toLowerCase()] = baseRuta(nv);
+      });
     });
     // VK repetidos
     const vistos = {}; filasM.forEach(x => { if (quitar.has(x.i)) return; const v = trim(x.c[iv]); (vistos[v] = vistos[v] || []).push(x.i + 1); });
@@ -921,7 +929,7 @@
             const t = trim(v);
             if (t === pos) { c[k] = nuevo; nota('DEFECTOS', x, k, t, nuevo, 'la posición cambió de VK'); }
             else if (t.startsWith(pos) && /^[A-Z_]/i.test(t.slice(pos.length)) && !/[\/.]/.test(t)) { c[k] = nuevo + t.slice(pos.length); nota('DEFECTOS', x, k, t, c[k], 'Key con el VK nuevo'); }
-            else if (/Defecto_Images\/|\.Imagen/i.test(v) && vkDeRuta(v) === pos) { const nv = cambiarVKRuta(v, pos, nuevo, ctDeVK(nuevo)); if (nv !== v) { c[k] = nv; nota('DEFECTOS', x, k, v, nv, 'ruta de la imagen con el VK nuevo'); } }
+            else if (/Defecto_Images\/|\.Imagen/i.test(v) && vkDeRuta(v) === pos) { const nv = cambiarVKRuta(v, pos, nuevo, ctDeVK(nuevo)); if (nv !== v) { c[k] = nv; nota('DEFECTOS', x, k, v, nv, 'ruta de la imagen con el VK nuevo'); mapaFotos[baseRuta(v).toLowerCase()] = baseRuta(nv); } }
           });
           pos = nuevo;
         }
@@ -930,10 +938,12 @@
       const porD = new Map(filasD.map(x => [x.i, x]));
       defOut = lineasD.map((l, i) => quitarD.has(i) ? null : (porD.has(i) ? porD.get(i).c.join(sepD) : l)).filter(l => l !== null).join('\n');
     }
-    return { mainText: mainOut, defText: defOut, cambios, quitadas, revisar, mapaVK, ct };
+    return { mainText: mainOut, defText: defOut, cambios, quitadas, revisar, mapaVK, mapaFotos, ct };
   }
   // Nombre de una foto del ZIP con el VK corregido (antes del renombrado de RenombrarImagenes)
-  function corregirNombreFoto(nombre, mapaVK) {
+  function corregirNombreFoto(nombre, mapaVK, mapaFotos) {
+    const exacto = mapaFotos && mapaFotos[String(nombre).toLowerCase()];
+    if (exacto) return exacto; // foto citada en una ruta corregida
     const keys = Object.keys(mapaVK || {}); if (!keys.length) return nombre;
     const m = nombre.match(/^((?:PT\s*)?)(\d{7,}|\d{5,}-\d+)(?=[^\d-]|$)/i);
     if (!m || !mapaVK[m[2]]) return nombre;
