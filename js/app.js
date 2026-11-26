@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.5.0';
+  const APP_VERSION = '1.6.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -746,8 +746,9 @@
     let h = '';
     for (let i = 0; i < total; i++) {
       const etiqueta = i === 0 ? '' : (f.compartidas[i - 1] ? `Compartido con ${C.salName(f.compartidas[i - 1].salida)}` : `Sección ${i + 1}`);
-      const quitar = i > 0 && !f.compartidas[i - 1] ? '<button type="button" class="sec peq sx" title="Quitar esta sección">×</button>' : '';
-      h += i === 0 ? `<div class="comp" style="margin-top:0">${selectorSeccion(partes[0] || '', 'data-p="0"')}<button type="button" class="sec peq smas">+ sección</button></div>`
+      const quitar = i > 0 && !f.compartidas[i - 1] ? '<button type="button" class="sec peq sx" title="Quitar esta sección">×</button>'
+        : i > 0 ? `<button type="button" class="sec peq sxsal" data-sal="${f.compartidas[i - 1].salida}" title="Quitar esta salida del tramo">×</button>` : '';
+      h += i === 0 ? `<div class="comp" style="margin-top:0">${selectorSeccion(partes[0] || '', 'data-p="0"')}<button type="button" class="sec peq smas">+ sección</button><button type="button" class="sec peq ssal" title="Otra salida va también por el tramo que llega a este apoyo (línea paralela)">+ salida</button></div>`
         : `<div class="comp">${etiqueta}: ${selectorSeccion(partes[i] || '', `data-p="${i}"`)}${quitar}</div>`;
     }
     return h;
@@ -766,9 +767,10 @@
     let h = `<div class="secc-bulk"><b style="width:100%;font-size:13px">Poner la misma sección a varios apoyos seguidos</b>
       <label>Salida<select id="sbSal">${salidas.map(s => `<option value="${s}">${C.salName(s)}</option>`).join('')}</select></label>
       <label>Desde apoyo<input id="sbDe" type="number" min="1"></label><label>Hasta apoyo<input id="sbA" type="number" min="1"></label>
-      <label>Sección${selectorSeccion('', 'id="sbSec"')}</label><button class="peq" id="btnSecBulk">Aplicar</button></div>`;
+      <label>Sección${selectorSeccion('', 'id="sbSec"')}</label><button class="peq" id="btnSecBulk">Aplicar</button>
+      <label>o va también la salida<input id="sbComp" type="number" min="1" style="width:70px"></label><button class="peq sec" id="btnCompBulk">Añadir salida</button></div>`;
     h += `<div class="scroll"><table class="tsec"><tr><th>Apoyo</th><th>Salida</th><th>Sección</th></tr>` + filas.map((f, i) => `<tr data-i="${i}"><td><b>${esc(f.apoyo)}</b> <span class="info">${esc(f.r.node.name)}</span></td><td>${varios ? 'C' + f.cuadro + ' ' : ''}${C.salName(f.salida)}</td><td>${celdaSecciones(f)}</td></tr>`).join('') + '</table></div>';
-    h += '<div class="info">Los cambios se escriben en la tabla de posiciones (columna SECCIÓN) y salen en el KMZ y en el ANEXO III. Con varias secciones en un apoyo la celda queda como «RZ95 / RZ50» (la de su salida primero).</div>';
+    h += '<div class="info">Los cambios se escriben en la tabla de posiciones (columna SECCIÓN) y salen en el KMZ y en el ANEXO III. Con varias secciones en un apoyo la celda queda como «RZ95 / RZ50» (la de su salida primero).<br><b>+ salida</b>: otra salida va también por el tramo que llega a ese apoyo (circuito doble). Se dibuja su línea paralela en el KMZ, sus metros cuentan en el KMZ y en el ANEXO III, y aquí puedes ponerle su sección. Se anota en el recuadro «Recorrido de salidas…» de abajo.</div>';
     zona.innerHTML = h;
   }
   // Repinta la celda con una sección más, conservando lo elegido
@@ -781,16 +783,59 @@
     [...tmp.querySelectorAll('select')].forEach((s, i) => { if (actual[i] !== undefined && [...s.options].some(o => o.value === actual[i])) s.value = actual[i]; });
     return tmp.innerHTML;
   }
+
+  // ── «+ salida»: otra salida pasa por el tramo que llega a este apoyo (circuito doble) ──
+  // Se escribe en el recuadro de recorridos como «SAL01 3-4 SAL02» (del 3 al 4 de la SAL01 va también la SAL02):
+  // así se dibuja la paralela, se cuentan sus metros en el KMZ y en el ANEXO III y la sección sale en el editor.
+  function tramoQueLlega(f) { return estado.secc.m.tramos.find(t => t.b === f.r.node && t.dist != null) || null; }
+  const lineaComp = (f, t, d) => `${C.salName(f.salida)} ${t.a.esPT ? 0 : t.a.apoyo}-${f.apoyo} ${C.salName(d)}`;
+  const normLinea = l => l.toUpperCase().replace(/SALIDA/g, 'SAL').replace(/SAL\s*0*(\d+)/g, 'SAL$1').replace(/\s+/g, ' ').replace(/\s*-\s*/g, '-').trim();
+  function escribirComp(lineas) { $('txtComp').value = lineas.join('\n'); lsSet(LS.comp, $('txtComp').value); pintarSecciones(); }
+  function anadirSalidaTramo(f, d) {
+    const t = tramoQueLlega(f);
+    if (!t) { alert(`El apoyo ${f.apoyo} no tiene tramo que llegue a él (revisa INICIO/FIN).`); return; }
+    if (d === f.salida) return;
+    const ls = $('txtComp').value.split(/\r?\n/).filter(x => x.trim());
+    const nueva = lineaComp(f, t, d);
+    if (!ls.some(x => normLinea(x) === normLinea(nueva))) ls.push(nueva);
+    escribirComp(ls);
+  }
+  function quitarSalidaTramo(f, d) {
+    const t = tramoQueLlega(f); if (!t) return;
+    const quitar = normLinea(lineaComp(f, t, d));
+    const ls = $('txtComp').value.split(/\r?\n/).filter(x => x.trim());
+    const quedan = ls.filter(x => normLinea(x) !== quitar);
+    if (quedan.length === ls.length) { alert(`Este tramo compartido con ${C.salName(d)} viene de una línea del recuadro «Recorrido de salidas…» que abarca más apoyos. Quítalo o cámbialo ahí.`); return; }
+    escribirComp(quedan);
+  }
+  $('secciones').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-i]'); if (!tr) return;
+    const f = estado.secc.filas[+tr.dataset.i];
+    if (e.target.classList.contains('ssal')) {
+      const sals = [...new Set(estado.secc.filas.map(x => x.salida))].filter(x => x !== f.salida && !f.compartidas.some(c => c.salida === x)).sort((a, b) => a - b);
+      const sel = document.createElement('select'); sel.className = 'ssel';
+      sel.innerHTML = '<option value="">¿Qué salida?</option>' + sals.map(x => `<option value="${x}">${C.salName(x)}</option>`).join('') + '<option value="__n">Otra…</option>';
+      e.target.replaceWith(sel); sel.focus();
+      sel.addEventListener('change', () => {
+        let d = sel.value; if (!d) return;
+        if (d === '__n') { d = prompt('Número de la salida (por ejemplo 4):', ''); if (!d || !/^\d+$/.test(d.trim())) { pintarSecciones(); return; } }
+        anadirSalidaTramo(f, +d);
+      });
+      return;
+    }
+    if (e.target.classList.contains('sxsal')) { quitarSalidaTramo(f, +e.target.dataset.sal); return; }
+  });
+
   function guardarSecciones(cambios) {
     const m = estado.secc.m;
     const txt = C.editarTabla($('txtMain').value, m, cambios);
     $('txtMain').value = txt; lsSet(LS.main, txt);
   }
   function valorFila(tr) {
-    return [...tr.querySelectorAll('select')].map(s => s.value === '__otra' ? '' : s.value.trim()).filter(Boolean).join(' / ');
+    return [...tr.querySelectorAll('select:not(.ssel)')].map(s => s.value === '__otra' ? '' : s.value.trim()).filter(Boolean).join(' / ');
   }
   $('secciones').addEventListener('change', e => {
-    const sel = e.target.closest('select'); if (!sel) return;
+    const sel = e.target.closest('select'); if (!sel || sel.classList.contains('ssel')) return;
     if (sel.value === '__otra') {
       const v = prompt('Escribe la sección:', '');
       if (v && v.trim()) { const o = document.createElement('option'); o.value = o.textContent = C.normSeccion(v); sel.insertBefore(o, sel.lastElementChild); sel.value = o.value; }
@@ -815,6 +860,18 @@
       const f = estado.secc.filas[+tr.dataset.i];
       guardarSecciones([{ r: f.r, seccion: valorFila(tr) }]); tr.classList.add('mod');
       tr.cells[2].innerHTML = celdaSeccionesDesde(f, tr, tr.querySelectorAll('select').length); // renumerar etiquetas
+      return;
+    }
+    if (e.target.id === 'btnCompBulk') {
+      const sal = +$('sbSal').value, de = +$('sbDe').value, a = +$('sbA').value, d = +$('sbComp').value;
+      if (!de || !a || !d) return alert('Pon desde qué apoyo, hasta cuál y qué salida va también por esos tramos.');
+      if (d === sal) return alert('Esa es la misma salida.');
+      const [lo, hi] = de <= a ? [de, a] : [a, de];
+      const fs = estado.secc.filas.filter(f => f.salida === sal && +f.apoyo >= lo && +f.apoyo <= hi);
+      if (!fs.length) return alert('No hay apoyos en ese rango.');
+      const ls = $('txtComp').value.split(/\r?\n/).filter(x => x.trim());
+      let n = 0; fs.forEach(f => { const t = tramoQueLlega(f); if (!t) return; const l = lineaComp(f, t, d); if (!ls.some(x => normLinea(x) === normLinea(l))) { ls.push(l); n++; } });
+      escribirComp(ls);
       return;
     }
     if (e.target.id !== 'btnSecBulk') return;
