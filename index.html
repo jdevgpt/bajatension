@@ -93,6 +93,11 @@
   .tsec .comp{font-size:12px;color:var(--gris-7);display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap}
   .tsec .smas,.tsec .sx,.tsec .ssal,.tsec .sxsal,.tsec .scop{padding:3px 8px;font-size:12px}
   .err-box{background:#fdecea;border:1px solid #f5c2bf;border-radius:8px;padding:8px 12px;margin:8px 0;color:var(--error)}
+  .rep-g{margin-top:10px}.rep-t{font-weight:700;font-size:13px;margin-bottom:4px}
+  .rep-fs{display:flex;gap:10px;flex-wrap:wrap}
+  .rep-f{border:2px solid var(--gris-3);border-radius:8px;padding:6px;width:190px;background:#fff;font-size:12px}
+  .rep-f img{width:100%;height:120px;object-fit:cover;border-radius:5px;background:#eee;display:block;margin-bottom:4px}
+  .rep-f.ok{border-color:#2e7d32}.rep-f.desc{opacity:.5}
   .campo{display:block;width:100%;box-sizing:border-box;font:inherit;font-weight:400;padding:8px 10px;border:1px solid var(--gris-3);border-radius:8px;margin-top:4px;background:#fff}
   .dos{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:640px){.dos{grid-template-columns:1fr}}
 </style>
@@ -150,6 +155,7 @@
       </div>
       <div class="fila"><span class="info" id="infoFotos">Sin fotos.</span><button class="sec peq" id="btnQuitarFotos" hidden>Quitar fotos</button></div>
       <div class="info">Las fotos de los dos ZIP van a la misma carpeta y se renombran juntas como hace RenombrarImagenes.cmd (con el CT de la tabla de posiciones) y se redimensionan a 1366×768.</div>
+      <div id="repetidas"></div>
       <div id="detFotos"></div>
       <label class="chk"><input type="checkbox" id="chkSuf1"> <span>En este ZIP el sufijo <b>_1</b> es la foto del CGP/CPM (por defecto <b>_1</b> es una foto general adicional).</span></label>
     </div>

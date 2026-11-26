@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.7.0';
+  const APP_VERSION = '1.8.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -140,23 +140,64 @@
       return blob ? new Uint8Array(await blob.arrayBuffer()) : bytes;
     } catch (e) { console.warn('No se pudo redimensionar', f.crudo, e); return bytes; }
   }
+  // ── Fotos repetidas: el técnico cambió la foto y AppSheet guardó las dos → mismo nombre final ──
+  // Se elige cuál se queda; las descartadas salen de estado.fotos (no van a FOTOS, ni a FOTOS ORIGINALES, ni al KMZ).
+  estado.descartadas = [];
+  const horaDe = f => { const m = f.crudo.match(/\.(\d{6})\.[^.]+$/); return m ? `${m[1].slice(0, 2)}:${m[1].slice(2, 4)}:${m[1].slice(4, 6)}` : ''; };
+  const urlMini = f => f.mini || (f.mini = f.leerOriginal().then(b => URL.createObjectURL(new Blob([b], { type: 'image/jpeg' }))));
+  function gruposRepetidas() {
+    const g = new Map();
+    estado.fotos.forEach(f => { if (f.campo && f.campo.estado === 'omitido' && f.campo.destino) { const k = f.campo.destino.toLowerCase(); if (!g.has(k)) g.set(k, { destino: f.campo.destino, fotos: [] }); g.get(k).fotos.push(f); } });
+    estado.descartadas.forEach(f => { const k = (f.destinoDesc || '').toLowerCase(); if (!k) return; if (!g.has(k)) g.set(k, { destino: f.destinoDesc, fotos: [] }); g.get(k).fotos.push(f); });
+    g.forEach((v, k) => { const gan = estado.fotos.find(f => f.campo && f.campo.estado !== 'omitido' && (f.campo.destino || '').toLowerCase() === k); if (gan) v.fotos.unshift(gan); });
+    return [...g.values()].filter(v => v.fotos.length > 1 || v.fotos.some(f => f.descartadaPor));
+  }
+  function pintarRepetidas() {
+    const zona = $('repetidas'); if (!zona) return;
+    const gs = gruposRepetidas();
+    if (!gs.length) { zona.innerHTML = ''; return; }
+    const pend = gs.filter(g => !g.fotos.some(f => f.descartadaPor)).length;
+    zona.innerHTML = `<div class="num-box"><b>Fotos repetidas</b> (${gs.length}): el técnico cambió la foto y se guardaron las dos. Elige cuál se queda con el nombre; las otras se eliminan (no salen en FOTOS ORIGINALES, ni en el KMZ, ni en la carpeta final).${pend ? ` <b>${pend === 1 ? 'Falta 1' : 'Faltan ' + pend} por decidir.</b>` : ''}` +
+      gs.map((g, gi) => `<div class="rep-g"><div class="rep-t">${esc(g.destino)}</div><div class="rep-fs">` + g.fotos.map((f, fi) => {
+        const desc = !!f.descartadaPor, elegida = !desc && g.fotos.some(x => x.descartadaPor);
+        return `<div class="rep-f${desc ? ' desc' : ''}${elegida ? ' ok' : ''}"><img data-g="${gi}" data-f="${fi}" alt=""><div class="info">${esc(f.crudo)}${horaDe(f) ? `<br>hora ${horaDe(f)}` : ''}${f.origen === 'def' ? ' · defectos' : ''}</div>` +
+          (desc ? `<span class="t-aviso">Descartada</span> <button class="sec peq rep-rec" data-g="${gi}" data-f="${fi}">Recuperar</button>` : elegida ? '<b>✔ Se queda</b>' : `<button class="peq rep-usar" data-g="${gi}" data-f="${fi}">Usar esta</button>`) + '</div>';
+      }).join('') + '</div></div>').join('') + '</div>';
+    estado.gruposRep = gs;
+    zona.querySelectorAll('img[data-g]').forEach(img => urlMini(gs[+img.dataset.g].fotos[+img.dataset.f]).then(u => { img.src = u; }));
+  }
+  function aplicarRepetidas() { renombrarCampo(); pintarFotos(); estado.fotosMarcadas = false; marcarFotosSiToca(); }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('.rep-usar,.rep-rec'); if (!b || !estado.gruposRep) return;
+    const g = estado.gruposRep[+b.dataset.g], f = g.fotos[+b.dataset.f];
+    if (b.classList.contains('rep-usar')) {
+      // las demás del grupo se descartan
+      g.fotos.forEach(x => { if (x === f || x.descartadaPor) return; x.descartadaPor = f.crudo; x.destinoDesc = g.destino; estado.descartadas.push(x); });
+      estado.fotos = estado.fotos.filter(x => !x.descartadaPor);
+    } else {
+      // recuperar: vuelve la descartada y se deshace la elección del grupo
+      g.fotos.filter(x => x.descartadaPor).forEach(x => { delete x.descartadaPor; delete x.destinoDesc; estado.fotos.push(x); });
+      estado.descartadas = estado.descartadas.filter(x => !g.fotos.includes(x));
+    }
+    aplicarRepetidas();
+  });
   function pintarFotos() {
     if (estado.mapaListo) pintarNumeracion();
     const n = estado.fotos.length;
     $('btnQuitarFotos').hidden = !n; $('btnCarpeta').hidden = !n;
-    if (!n) { $('infoFotos').textContent = 'Sin fotos.'; $('detFotos').innerHTML = ''; comprobarLuego(); return; }
+    if (!n) { $('infoFotos').textContent = 'Sin fotos.'; $('detFotos').innerHTML = ''; pintarRepetidas(); comprobarLuego(); return; }
     if (!estado.ctFotos) { $('infoFotos').textContent = `${n} fotos cargadas (${estado.fotos.filter(f => f.origen !== 'def').length} de posiciones, ${estado.fotos.filter(f => f.origen === 'def').length} de defectos). Pega la tabla de posiciones para renombrarlas con su CT.`; $('detFotos').innerHTML = ''; return; }
     const ren = estado.fotos.filter(f => f.campo && f.campo.estado === 'renombrado').length;
     const mal = estado.fotos.filter(f => f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido'));
     const nP = estado.fotos.filter(f => f.origen !== 'def').length, nD = n - nP;
-    comprobarLuego();
-    $('infoFotos').textContent = `${n} fotos (${nP} de posiciones${nD ? `, ${nD} de defectos` : ', sin ZIP de defectos'}) · ${ren} renombradas con CT ${estado.ctFotos}${n - ren - mal.length ? ` · ${n - ren - mal.length} ya tenían su nombre` : ''}${mal.length ? ` · ${mal.length} sin renombrar` : ''}. Se redimensionan a 1366×768.`;
+    comprobarLuego(); pintarRepetidas();
+    $('infoFotos').textContent = `${n} fotos (${nP} de posiciones${nD ? `, ${nD} de defectos` : ', sin ZIP de defectos'}${estado.descartadas.length ? `; ${estado.descartadas.length} repetida${estado.descartadas.length === 1 ? '' : 's'} descartada${estado.descartadas.length === 1 ? '' : 's'}` : ''}) · ${ren} renombradas con CT ${estado.ctFotos}${n - ren - mal.length ? ` · ${n - ren - mal.length} ya tenían su nombre` : ''}${mal.length ? ` · ${mal.length} sin renombrar` : ''}. Se redimensionan a 1366×768.`;
     const filas = estado.fotos.map(f => `<tr${f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido') ? ' class="t-aviso"' : ''}><td>${f.origen === 'def' ? 'Defectos' : 'Posiciones'}</td><td>${esc(f.crudo)}</td><td>${esc(f.nombre)}</td><td>${f.campo ? (f.campo.estado === 'renombrado' ? 'Renombrada' : f.campo.estado === 'igual' ? 'Igual' : (f.campo.estado === 'omitido' ? 'Omitida' : 'Ignorada') + ' (' + esc(f.campo.motivo) + ')') : ''}</td></tr>`).join('');
     $('detFotos').innerHTML = `<details${mal.length ? ' open' : ''}><summary>Nombres de las fotos${mal.length ? ` (${mal.length} sin renombrar)` : ''}</summary><table><tr><th>ZIP</th><th>Nombre en el ZIP</th><th>Nombre nuevo</th><th></th></tr>${filas}</table></details>`;
   }
   zonaDrop($('dropFotos'), $('fFotos'), fs => anadirFotos(fs, 'pos'));
   zonaDrop($('dropFotosDef'), $('fFotosDef'), fs => anadirFotos(fs, 'def'));
-  $('btnQuitarFotos').addEventListener('click', () => { estado.fotos = []; estado.fotosMarcadas = false; estado.carpetaHecha = false; pintarFotos(); });
+  $('btnQuitarFotos').addEventListener('click', () => { estado.fotos = []; estado.descartadas = []; estado.fotosMarcadas = false; estado.carpetaHecha = false; pintarFotos(); });
 
 
   // ───────── ANEXO II: se guarda en este equipo (IndexedDB) ─────────
@@ -210,7 +251,7 @@
     // memoria de la página
     if (estado.miniaturas) estado.miniaturas.forEach(u => { if (u) URL.revokeObjectURL(u); });
     estado.miniaturas = new Map(); estado.fotoElegida = {}; estado.avisoRegenerar = false; estado.fotosMarcadas = false; estado.tablaAvisada = null;
-    estado.fotos = []; estado.kmzGenerado = null; estado.kmzModificado = null; estado.kmzLeido = null; estado.modelo = null; estado.informe = null;
+    estado.fotos = []; estado.descartadas = []; estado.kmzGenerado = null; estado.kmzModificado = null; estado.kmzLeido = null; estado.modelo = null; estado.informe = null;
     clearTimeout(estado.tGrav);
     // memoria del navegador (el orden de gravedad es un ajuste y se conserva)
     [LS.main, LS.def, LS.suf, LS.comp, LS.orig, LS.mapa, 'jdev_kmz_informe'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });

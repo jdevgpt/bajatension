@@ -875,10 +875,10 @@
         }
       } else { res.set(nombre, { orig: nombre, nuevo: nombre, estado: 'ignorado', motivo: `no empieza por CT=${CT} o formato no reconocido` }); continue; }
       const nuevo = core + sufijo + ext;
-      if (nuevo.toLowerCase() === nombre.toLowerCase()) { res.set(nombre, { orig: nombre, nuevo: nombre, estado: 'igual' }); continue; }
-      if (existentes.has(nuevo.toLowerCase())) { res.set(nombre, { orig: nombre, nuevo: nombre, estado: 'omitido', motivo: `ya existe ${nuevo}` }); continue; }
+      if (nuevo.toLowerCase() === nombre.toLowerCase()) { res.set(nombre, { orig: nombre, nuevo: nombre, estado: 'igual', destino: nuevo }); continue; }
+      if (existentes.has(nuevo.toLowerCase())) { res.set(nombre, { orig: nombre, nuevo: nombre, estado: 'omitido', motivo: `ya existe ${nuevo}`, destino: nuevo }); continue; }
       existentes.delete(nombre.toLowerCase()); existentes.add(nuevo.toLowerCase());
-      res.set(nombre, { orig: nombre, nuevo, estado: 'renombrado' });
+      res.set(nombre, { orig: nombre, nuevo, estado: 'renombrado', destino: nuevo });
     }
     return nombres.map(n => res.get(n) || { orig: n, nuevo: n, estado: 'ignorado', motivo: 'script' });
   }
