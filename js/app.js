@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.3.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -181,29 +181,22 @@
   $('btnQuitarAnexo2').addEventListener('click', async () => { if (!confirm('¿Quitar el archivo del ANEXO II de este equipo?')) return; try { await idbSet('anexo2', null); } catch (e) {} pintarAnexo2(); });
   pintarAnexo2();
 
-  // ───────── Carpeta del centro: «CT»/ANEXO II, «CT»/FOTOS (redimensionadas), «CT»/FOTOS ORIGINALES/«CT» ─────────
-  async function zipCarpeta(ct) {
-    const z = new JSZip(), raiz = z.folder(ct);
-    if (estado.anexo2) raiz.file(estado.anexo2.nombre, estado.anexo2.bytes);
-    const fotos = raiz.folder('FOTOS'), orig = raiz.folder('FOTOS ORIGINALES').folder(ct);
+  // ───────── FOTOS ORIGINALES/«CT»: las fotos renombradas sin redimensionar (se guardan aparte en el ordenador) ─────────
+  async function descargarOriginales(ct) {
+    const z = new JSZip(), orig = z.folder('FOTOS ORIGINALES').folder(ct);
     const usados = new Set();
     for (const f of estado.fotos) {
       let n = f.nombre, i = 2; while (usados.has(n.toLowerCase())) n = f.nombre.replace(/(\.\w+)$/, `_${i++}$1`); usados.add(n.toLowerCase());
-      fotos.file(n, await f.leer(), { compression: 'STORE' });
       orig.file(n, await f.leerOriginal(), { compression: 'STORE' });
     }
-    return z.generateAsync({ type: 'blob' });
-  }
-  async function descargarCarpeta(ct) {
-    if (!estado.anexo2 && !confirm('No has cargado el archivo del ANEXO II: la carpeta irá sin él.\n\n¿Seguir?')) { resaltar('dropAnexo2'); return false; }
-    descargar(await zipCarpeta(ct), `${ct}.zip`); estado.carpetaHecha = true;
+    descargar(await z.generateAsync({ type: 'blob' }), `FOTOS ORIGINALES - ${ct}.zip`);
     await new Promise(r => setTimeout(r, 500));
     return true;
   }
   $('btnCarpeta').addEventListener('click', async () => {
     const ct = ctTabla(); if (!ct) { alert('Pega primero la tabla de posiciones: el nombre de la carpeta es el número del centro.'); return; }
     const b = $('btnCarpeta'); b.disabled = true; const t = b.textContent; b.textContent = 'Preparando…';
-    try { await descargarCarpeta(ct); } catch (e) { alert(e.message); } finally { b.disabled = false; b.textContent = t; }
+    try { await descargarOriginales(ct); } catch (e) { alert(e.message); } finally { b.disabled = false; b.textContent = t; }
   });
 
   $('btnNuevo').addEventListener('click', () => {
@@ -344,7 +337,7 @@
     const btn = $('btnKmz'); btn.disabled = true; btn.textContent = 'Generando…';
     try {
       const m = modeloDesdeTablas();
-      if (estado.fotos.length) { renombrarCampo(); pintarFotos(); btn.textContent = 'Redimensionando fotos…'; if (!(await descargarCarpeta(m.ct))) return; btn.textContent = 'Generando KMZ…'; }
+      if (estado.fotos.length) { renombrarCampo(); pintarFotos(); btn.textContent = 'Preparando fotos…'; await descargarOriginales(m.ct); for (const f of estado.fotos) await f.leer(); btn.textContent = 'Generando KMZ…'; }
       const ph = C.asociarFotos(m, estado.fotos.map(f => f.nombre), { sufijo1EsCGP: $('chkSuf1').checked });
       // nombres únicos dentro de files/
       const usados = new Set(['leyenda.png']); const nombreDe = new Map();
@@ -368,7 +361,7 @@
       pintarRes1(m, ph, nombre);
     } catch (e) {
       console.error(e); $('res1').innerHTML = `<div class="res"><div class="err-box">${esc(e.message)}</div></div>`;
-    } finally { btn.disabled = false; btn.textContent = 'Generar carpeta y KMZ'; }
+    } finally { btn.disabled = false; btn.textContent = 'Generar KMZ'; }
   });
 
   function pintarRes1(m, ph, nombre) {
@@ -546,11 +539,10 @@
       if (!k.zip) an.avisos.push('Has subido un .kml: no lleva fotos, así que la columna FOTO queda vacía.');
       const blob = await tpl.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const nombre = `ANEXO III - ${m.ct}.xlsx`;
-      descargar(blob, nombre);
       marcarPaso('excel', m.ct);
       estado.anexo3 = { blob, nombre, kmz, kzip: k.zip, ct: m.ct };
       const conDef = an.filas.filter(f => f.defec || f.q91x);
-      let h = `<div class="res"><div class="ok-box">✔ <b>${esc(nombre)}</b> generado y descargado desde <i>${esc(kmz.nombre)}</i>.</div>
+      let h = `<div class="res"><div class="ok-box">✔ <b>${esc(nombre)}</b> generado desde <i>${esc(kmz.nombre)}</i>. Se descarga en la carpeta final (paso 3). <button class="sec peq" id="btnSoloAnexo3">Descargar solo el ANEXO III</button></div>
         <div class="chips"><span class="chip">Filas <b>${an.filas.length}</b></span><span class="chip">Con defecto <b>${conDef.length}</b></span><span class="chip">Suma DIST. <b>${C.fmtMiles(an.totalDist)} m</b></span><span class="chip">Fotos en FOTO <b>${gx.nFotos}</b></span><span class="chip">Defectos leídos de <b>${an.fuenteDef}</b></span></div>`;
       const inf = an.informe;
       const [fy, fm, fd] = (inf.fecha || '--').split('-');
@@ -568,6 +560,7 @@
       if (an.resumen.length) h += `<details open><summary>Supuestos aplicados</summary>${listaAvisos(an.resumen, '')}</details>`;
       h += `<details><summary>Ver filas del ANEXO III</summary><div class="scroll"><table><tr><th>Nº</th><th>TIPO</th><th>INICIO</th><th>FIN</th><th>SECCIÓN</th><th>DIST.</th><th>DEFEC.</th><th>Q91X</th><th>OBSERVACIONES</th><th>FOTO</th></tr>${an.filas.map(f => `<tr><td>${esc(f.apoyo)}</td><td>${esc(f.tipo)}</td><td>${esc(f.inicio)}</td><td>${esc(f.fin)}</td><td>${esc(f.seccion)}</td><td>${f.dist}</td><td>${esc(f.defec)}</td><td>${esc(f.q91x)}</td><td>${esc(f.obs)}</td><td>${f.fotoVm ? esc(f.fotoSrc.split('/').pop()) + '<br><span class="info">' + esc(f.fotoMotivo) + '</span>' : ''}</td></tr>`).join('')}</table></div></details></div>`;
       $('res2').innerHTML = h;
+      $('btnSoloAnexo3').addEventListener('click', () => descargar(blob, nombre));
       const pintarDoc = () => {
         const bol = esBoletin($('selProv').value);
         $('tituloDoc').textContent = bol ? 'Certificado de Revisión BT' : 'Informe BT';

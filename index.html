@@ -108,7 +108,7 @@
     </svg>
     <div>
       <h1>Baja Tensión</h1>
-      <p>Paso 1: tablas y ZIP de fotos → carpeta del centro y KMZ. Paso 2: KMZ revisado → Excel ANEXO III → Informe / Certificado.</p>
+      <p>Paso 1: tablas y fotos → FOTOS ORIGINALES y KMZ. Paso 2: KMZ revisado y captura → ANEXO III. Paso 3: Informe / Certificado y carpeta final.</p>
     </div>
     <button class="nuevo-cab" id="btnNuevo" title="Borra todo y empieza otro centro">＋ Nuevo proyecto</button>
   </div>
@@ -117,7 +117,7 @@
 <main>
   <!-- PASO 1 -->
   <section class="card" id="paso1">
-    <h2><span class="paso">1</span> Carpeta del centro y KMZ</h2>
+    <h2><span class="paso">1</span> Fotos y KMZ</h2>
     <p class="sub">Pega las tablas tal cual (copiadas de la hoja) o carga el archivo. Las tablas se guardan en este navegador para el paso 2.</p>
     <div class="grid2">
       <div>
@@ -161,10 +161,10 @@
     </div>
     <div id="comprobacion" style="margin-top:14px"></div>
     <div class="acciones">
-      <button id="btnKmz">Generar carpeta y KMZ</button>
-      <button class="sec" id="btnCarpeta" hidden>Descargar solo la carpeta del centro</button>
+      <button id="btnKmz">Generar KMZ</button>
+      <button class="sec" id="btnCarpeta" hidden>Descargar solo FOTOS ORIGINALES</button>
     </div>
-    <div class="info">Se descargan dos archivos: <b>«CT».zip</b> con la carpeta del centro (ANEXO II, FOTOS redimensionadas y FOTOS ORIGINALES/«CT») y <b>ANEXO I - «CT».kmz</b> con las fotos redimensionadas.</div>
+    <div class="info">Se descargan dos archivos: <b>FOTOS ORIGINALES - «CT».zip</b> (FOTOS ORIGINALES/«CT» con las fotos renombradas sin redimensionar, para guardarlas en tu ordenador) y <b>ANEXO I - «CT».kmz</b> con las fotos redimensionadas, para revisarlo. Las fotos redimensionadas y el ANEXO II van en la carpeta final del paso 3.</div>
     <div id="res1"></div>
   </section>
 
@@ -175,6 +175,12 @@
     <div class="drop" id="dropKmz">Arrastra aquí el KMZ modificado o <u>pulsa para elegir</u></div>
     <input type="file" id="fKmz" accept=".kmz,.kml">
     <div class="fila"><span class="info" id="infoKmz">Ningún KMZ cargado.</span><button class="sec peq" id="btnUsarGenerado" hidden>Usar el KMZ recién generado</button></div>
+    <div style="margin-top:12px">
+        <label class="t">Captura del ANEXO I <span class="opc">(la que sacas de Google Earth con este KMZ; va al Word y a la carpeta final)</span></label>
+        <div class="drop" id="dropCaptura">Arrastra aquí la captura o <u>pulsa para elegir</u></div>
+        <input type="file" id="fCaptura" accept="image/*">
+        <div class="fila"><img id="p3CapPrev" alt="" hidden style="max-width:280px;max-height:160px;border:1px solid var(--gris-3);border-radius:6px"><button class="sec peq" id="btnQuitarCaptura" hidden>Quitar</button></div>
+      </div>
     <div style="margin-top:14px">
       <label class="t">Foto de cada fila (columna FOTO)</label>
       <div id="fotosPick"><div class="info">Carga el KMZ modificado para elegir las fotos.</div></div>
@@ -192,7 +198,7 @@
   <!-- PASO 3 -->
   <section class="card" id="paso3">
     <h2><span class="paso">3</span> <span id="tituloPaso3">Informe / Certificado</span> y carpeta final</h2>
-    <p class="sub">Con el ANEXO III generado: revisa los datos, sube la captura del KMZ modificado sacada de Google Earth y descarga el Word o la carpeta final para la plataforma.</p>
+    <p class="sub">Con el ANEXO III generado: revisa los datos y descarga la carpeta final para la plataforma (o solo el Word).</p>
     <div id="p3Vacio" class="info">Genera primero el ANEXO III en el paso 2.</div>
     <div id="p3Form" hidden>
       <div class="dos">
@@ -204,12 +210,6 @@
         <label class="t">Población<input id="p3Pob" class="campo"></label>
       </div>
       <div class="info" id="p3DirInfo"></div>
-      <div style="margin-top:12px">
-        <label class="t">Captura del ANEXO I <span class="opc">(de Google Earth, con el KMZ modificado)</span></label>
-        <div class="drop" id="dropCaptura">Arrastra aquí la captura o <u>pulsa para elegir</u></div>
-        <input type="file" id="fCaptura" accept="image/*">
-        <div class="fila"><img id="p3CapPrev" alt="" hidden style="max-width:280px;max-height:160px;border:1px solid var(--gris-3);border-radius:6px"><button class="sec peq" id="btnQuitarCaptura" hidden>Quitar</button></div>
-      </div>
       <div id="p3Defs" style="margin-top:10px"></div>
       <div class="info" id="p3Firma"></div>
       <div class="acciones">
