@@ -828,6 +828,118 @@
 
 
 
+
+  // ───────── Revisión de las tablas de AppSheet (datos cruzados entre CT, VK y fotos) ─────────
+  // Reglas acordadas con el usuario:
+  //  · El VK (CT + cuadro + salida + apoyo, 2 cifras cada uno) y el nombre de las fotos mandan sobre la columna CT.
+  //  · Si el VK es de otro centro (y no es una errata de una cifra), la fila es de ese centro: se quita de esta tabla.
+  //  · Números negativos en cuadro/salida/apoyo → positivos.
+  //  · VK con guion (12410102-1) o cuyas 6 últimas cifras no coinciden con cuadro-salida-apoyo → se rehace con las columnas.
+  //  · Las rutas de las fotos de la fila y los defectos que apuntaban al VK antiguo pasan al VK nuevo.
+  //  · En DEFECTOS el VK que lleva el nombre de la imagen manda sobre la columna POSICIÓN.
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i].concat(Array(n).fill(0)));
+    for (let j = 1; j <= n; j++) d[0][j] = j;
+    for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[m][n];
+  }
+  const RE_VK = /^(\d{7,}|\d{5,}-\d+)$/;
+  const ctDeVK = vk => /^\d{7,}$/.test(vk) ? vk.slice(0, -6) : (/^\d{5,}-\d+$/.test(vk) ? vk.split('-')[0].slice(0, -4) : '');
+  const p2 = x => String(Math.abs(parseInt(x, 10) || 0)).padStart(2, '0');
+  // nombre de archivo de una ruta y su VK inicial («Posicione_Images/2329010106.Imagen general 1.163904.jpg» → 2329010106)
+  const vkDeRuta = r => { const b = String(r || '').split('/').pop(); const m = b.match(/^(?:PT\s*)?(\d{7,}|\d{5,}-\d+)(?=[^\d-]|$)/i); return m ? m[1] : ''; };
+  // cambia el VK al principio del nombre de archivo de una ruta (manteniendo carpetas y el resto del nombre)
+  function cambiarVKRuta(ruta, viejo, nuevo, ctNuevo) {
+    const partes = String(ruta).split('/'); const b = partes.pop();
+    const m = b.match(/^((?:PT\s*)?)(\d{7,}|\d{5,}-\d+)(?=[^\d-]|$)/i);
+    if (!m || m[2] !== viejo) return ruta;
+    // carpeta por CT en defectos (Defecto_Images/71209/…)
+    if (ctNuevo && partes.length && /^\d+$/.test(partes[partes.length - 1])) partes[partes.length - 1] = ctNuevo;
+    return partes.concat(m[1] + nuevo + b.slice(m[0].length)).join('/');
+  }
+  function revisarAppsheet(mainText, defText) {
+    const cambios = [], quitadas = [], revisar = [], mapaVK = {};
+    const sepM = /\t/.test(mainText) ? '\t' : ';', sepD = /\t/.test(defText || '') ? '\t' : ';';
+    const lineasM = String(mainText || '').replace(/\r\n?/g, '\n').split('\n');
+    const filasM = lineasM.map((l, i) => ({ i, l, c: l.split(sepM) })).filter(x => x.l.trim() !== '' && /^-?\d+$/.test(trim(x.c[1] || '')));
+    if (!filasM.length) return { mainText, defText, cambios, quitadas, revisar, mapaVK, ct: '' };
+    // columna del VK: la que más celdas tiene con forma de VK (fuera de las 5 primeras)
+    const nCol = Math.max(...filasM.map(x => x.c.length));
+    let iv = -1, best = 0;
+    for (let k = 5; k < nCol; k++) { const n = filasM.filter(x => RE_VK.test(trim(x.c[k] || ''))).length; if (n > best) { best = n; iv = k; } }
+    if (iv < 0 || best < filasM.length / 2) return { mainText, defText, cambios, quitadas, revisar: ['No encuentro la columna VK Posiciones en la tabla: no se revisa.'], mapaVK, ct: '' };
+    const esRuta = v => /Posicione_Images\/|\.Imagen/i.test(v);
+    // centro: el más repetido según el VK
+    const cnt = {}; filasM.forEach(x => { const c = ctDeVK(trim(x.c[iv])); if (c) cnt[c] = (cnt[c] || 0) + 1; });
+    const ct = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || trim(filasM[0].c[1]);
+    const nota = (tabla, x, k, antes, despues, motivo) => cambios.push({ tabla, fila: x.i + 1, col: k, antes, despues, motivo });
+    const quitar = new Set();
+    filasM.forEach(x => {
+      const c = x.c, colB = trim(c[1]), vk = trim(c[iv]), vkCT = ctDeVK(vk);
+      [2, 3, 4].forEach(k => { const v = trim(c[k]); if (/^-\d+$/.test(v)) { c[k] = String(Math.abs(+v)); nota('POSICIONES', x, k, v, c[k], 'número negativo (error de escritura)'); } });
+      // ¿de qué centro es la fila?
+      if (vkCT && vkCT !== ct) {
+        if (levenshtein(vkCT, ct) <= 1 && (colB === ct || !colB)) { /* errata en el VK: se rehace abajo */ }
+        else { quitar.add(x.i); quitadas.push({ fila: x.i + 1, ctTabla: colB, ctVK: vkCT, vk, motivo: `según el VK y sus fotos es del centro ${vkCT}` }); return; }
+      }
+      if (colB !== ct) { c[1] = ct; nota('POSICIONES', x, 1, colB, ct, 'CT según el VK y las fotos'); }
+      const esperado = ct + p2(c[2]) + p2(c[3]) + p2(c[4]);
+      if (vk !== esperado) {
+        const motivo = !vk ? 'VK vacío' : /-/.test(vk) ? 'VK con guion' : vkCT !== ct ? 'errata de CT en el VK' : 'el VK no coincide con cuadro-salida-apoyo';
+        c[iv] = esperado; nota('POSICIONES', x, iv, vk, esperado, motivo);
+        if (vk) mapaVK[vk] = esperado;
+        c.forEach((v, k) => { if (k !== iv && esRuta(v) && vkDeRuta(v) === vk) { const nv = cambiarVKRuta(v, vk, esperado); if (nv !== v) { c[k] = nv; nota('POSICIONES', x, k, v, nv, 'ruta de la foto con el VK nuevo'); } } });
+      }
+    });
+    // VK repetidos
+    const vistos = {}; filasM.forEach(x => { if (quitar.has(x.i)) return; const v = trim(x.c[iv]); (vistos[v] = vistos[v] || []).push(x.i + 1); });
+    Object.keys(vistos).forEach(v => { if (vistos[v].length > 1) revisar.push(`VK ${v} repetido en las filas ${vistos[v].join(', ')} de POSICIONES: revisa el número de apoyo.`); });
+    const vkFinales = new Set(filasM.filter(x => !quitar.has(x.i)).map(x => trim(x.c[iv])));
+    const porI = new Map(filasM.map(x => [x.i, x]));
+    const mainOut = lineasM.map((l, i) => quitar.has(i) ? null : (porI.has(i) ? porI.get(i).c.join(sepM) : l)).filter(l => l !== null).join('\n');
+    // ── DEFECTOS ──
+    let defOut = defText;
+    if (defText && defText.trim()) {
+      const lineasD = String(defText).replace(/\r\n?/g, '\n').split('\n');
+      const quitarD = new Set();
+      const filasD = lineasD.map((l, i) => ({ i, l, c: l.split(sepD) })).filter(x => x.l.trim() !== '');
+      filasD.forEach(x => {
+        const c = x.c;
+        const kPos = c.findIndex(v => RE_VK.test(trim(v)));
+        const kImg = c.findIndex(v => /Defecto_Images\/|\.Imagen/i.test(v) && vkDeRuta(v));
+        if (kPos < 0 && kImg < 0) return; // cabecera u otra cosa
+        let pos = kPos >= 0 ? trim(c[kPos]) : '';
+        const vkImg = kImg >= 0 ? vkDeRuta(c[kImg]) : '';
+        // el VK del nombre de la imagen manda
+        if (vkImg && pos && vkImg !== pos) { c[kPos] = vkImg; nota('DEFECTOS', x, kPos, pos, vkImg, 'POSICIÓN según el nombre de la imagen'); pos = vkImg; }
+        if (!pos) pos = vkImg;
+        const vkCT = ctDeVK(pos);
+        if (vkCT && vkCT !== ct && !(levenshtein(vkCT, ct) <= 1 && mapaVK[pos])) { quitarD.add(x.i); quitadas.push({ tabla: 'DEFECTOS', fila: x.i + 1, ctVK: vkCT, vk: pos, motivo: `defecto del centro ${vkCT}` }); return; }
+        const nuevo = mapaVK[pos];
+        if (nuevo) {
+          c.forEach((v, k) => {
+            const t = trim(v);
+            if (t === pos) { c[k] = nuevo; nota('DEFECTOS', x, k, t, nuevo, 'la posición cambió de VK'); }
+            else if (t.startsWith(pos) && /^[A-Z_]/i.test(t.slice(pos.length)) && !/[\/.]/.test(t)) { c[k] = nuevo + t.slice(pos.length); nota('DEFECTOS', x, k, t, c[k], 'Key con el VK nuevo'); }
+            else if (/Defecto_Images\/|\.Imagen/i.test(v) && vkDeRuta(v) === pos) { const nv = cambiarVKRuta(v, pos, nuevo, ctDeVK(nuevo)); if (nv !== v) { c[k] = nv; nota('DEFECTOS', x, k, v, nv, 'ruta de la imagen con el VK nuevo'); } }
+          });
+          pos = nuevo;
+        }
+        if (pos && !vkFinales.has(pos)) revisar.push(`Defecto de la fila ${x.i + 1}: su posición ${pos} no está en la tabla de posiciones.`);
+      });
+      const porD = new Map(filasD.map(x => [x.i, x]));
+      defOut = lineasD.map((l, i) => quitarD.has(i) ? null : (porD.has(i) ? porD.get(i).c.join(sepD) : l)).filter(l => l !== null).join('\n');
+    }
+    return { mainText: mainOut, defText: defOut, cambios, quitadas, revisar, mapaVK, ct };
+  }
+  // Nombre de una foto del ZIP con el VK corregido (antes del renombrado de RenombrarImagenes)
+  function corregirNombreFoto(nombre, mapaVK) {
+    const keys = Object.keys(mapaVK || {}); if (!keys.length) return nombre;
+    const m = nombre.match(/^((?:PT\s*)?)(\d{7,}|\d{5,}-\d+)(?=[^\d-]|$)/i);
+    if (!m || !mapaVK[m[2]]) return nombre;
+    return m[1] + mapaVK[m[2]] + nombre.slice(m[0].length);
+  }
+
   // ───────── Renombrado de las fotos de campo (réplica exacta de RenombrarImagenes.ps1) ─────────
   // nombres: nombres de archivo (sin carpeta). Devuelve [{ orig, nuevo, estado: 'renombrado'|'igual'|'ignorado'|'omitido', motivo }]
   function renombrarFotosCampo(nombres, CT) {
@@ -1291,7 +1403,7 @@
     return { avisos, nFotos: imgs.length };
   }
 
-  const api = { renombrarFotosCampo, medirKml, tablaDesdeKmz, numeracionSeguida, SECCIONES, filasSecciones, editarTabla, normSeccion, analizarNumeracion, propuestaCompactar, propuestaCambio, renumerar, haversine, parseCoords, splitTable, parseMain, parseDefects, buildModel, asociarFotos, buildKml, leyendaFilas, distancias,
+  const api = { revisarAppsheet, corregirNombreFoto, renombrarFotosCampo, medirKml, tablaDesdeKmz, numeracionSeguida, SECCIONES, filasSecciones, editarTabla, normSeccion, analizarNumeracion, propuestaCompactar, propuestaCambio, renumerar, haversine, parseCoords, splitTable, parseMain, parseDefects, buildModel, asociarFotos, buildKml, leyendaFilas, distancias,
     parseKml, buildAnexo, anexoSheetXml, anexoWorkbookXml, anexoRichData, anexoContentTypes, anexoWorkbookRels, GRAVEDAD_DEFECTO, generarAnexoXlsx, normTipo, claseTipo, tieneCGP, salHex, salName, fmtMiles, pad2, upperEs, excelSerialToDate };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Core = api;
 })(typeof window !== 'undefined' ? window : globalThis);

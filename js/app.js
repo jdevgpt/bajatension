@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.8.0';
+  const APP_VERSION = '1.9.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -9,7 +9,8 @@
   const estado = { fotos: [], kmzGenerado: null, kmzModificado: null, modelo: null };
 
   // ───────── persistencia de las tablas (solo texto) ─────────
-  const LS = { main: 'bajatension.main', def: 'bajatension.def', suf: 'bajatension.suf1', comp: 'bajatension.comp', orig: 'bajatension.orig', mapa: 'bajatension.mapa' };
+  const LS = { main: 'bajatension.main', def: 'bajatension.def', suf: 'bajatension.suf1', comp: 'bajatension.comp', orig: 'bajatension.orig', mapa: 'bajatension.mapa', vk: 'bajatension.mapaVK', rev: 'bajatension.revAppsheet' };
+  function lsJson(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
   const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } };
   $('txtMain').value = lsGet(LS.main);
@@ -19,7 +20,7 @@
   $('txtComp').addEventListener('input', () => { lsSet(LS.comp, $('txtComp').value); clearTimeout(estado.tComp); estado.tComp = setTimeout(() => pintarSecciones(), 600); });
   const infoTabla = (ta, info) => { const n = C.splitTable(ta.value).length; $(info).textContent = n ? n + ' filas' : ''; };
   [['txtMain', 'infoMain', LS.main], ['txtDef', 'infoDef', LS.def]].forEach(([ta, info, k]) => {
-    $(ta).addEventListener('input', () => { lsSet(k, $(ta).value); comprobarLuego(); clearTimeout(estado.tRen); estado.tRen = setTimeout(() => { if (estado.fotos.length && ctTabla() !== estado.ctFotos) { renombrarCampo(); pintarFotos(); } }, 700); infoTabla($(ta), info); actualizarBtnExcel(); clearTimeout(estado.tNum); estado.tNum = setTimeout(() => { pintarNumeracion(); pintarSecciones(); avisarTabla(); marcarFotosSiToca(); }, 500); });
+    $(ta).addEventListener('input', () => { lsSet(k, $(ta).value); comprobarLuego(); clearTimeout(estado.tRen); estado.tRen = setTimeout(() => { if (estado.fotos.length && ctTabla() !== estado.ctFotos) { renombrarCampo(); pintarFotos(); } }, 700); infoTabla($(ta), info); actualizarBtnExcel(); clearTimeout(estado.tNum); estado.tNum = setTimeout(() => { revisarTablas(); pintarNumeracion(); pintarSecciones(); avisarTabla(); marcarFotosSiToca(); }, 500); });
     infoTabla($(ta), info);
   });
   $('chkSuf1').addEventListener('change', () => lsSet(LS.suf, $('chkSuf1').checked ? '1' : ''));
@@ -118,9 +119,16 @@
   }
   function renombrarCampo() {
     if (!estado.fotos.length) return;
+    // fotos de filas que la revisión de AppSheet ha quitado por ser de otro centro: no se usan
+    const otros = new Set(((estado.revAplicada && estado.revAplicada.quitadas) || []).map(q => q.vk).filter(Boolean));
+    if (otros.size) {
+      const vkFoto = f => { const m = f.crudo.match(/^(?:PT\s*)?(\d{7,}|\d{5,}-\d+)(?=[^\d-]|$)/i); return m ? m[1] : ''; };
+      estado.fotos.forEach(f => { if (otros.has(vkFoto(f))) { f.descartadaPor = 'otro centro'; f.otroCentro = vkFoto(f); estado.descartadas.push(f); } });
+      estado.fotos = estado.fotos.filter(f => !f.otroCentro);
+    }
     const ct = ctTabla(); estado.ctFotos = ct;
     if (!ct) { estado.fotos.forEach(f => { f.orig = f.crudo; f.nombre = renombrar(f.orig); f.campo = null; }); return; }
-    const r = C.renombrarFotosCampo(estado.fotos.map(f => f.crudo), ct);
+    const r = C.renombrarFotosCampo(estado.fotos.map(f => (f.crudoVK = C.corregirNombreFoto(f.crudo, estado.mapaVK || {}))), ct);
     estado.fotos.forEach((f, i) => { f.campo = r[i]; f.orig = r[i].nuevo; f.nombre = renombrar(f.orig); });
   }
   // Redimensiona para que quepa en 1366×768 (una vertical queda 576×768), sin agrandar; JPEG calidad 0,9
@@ -148,7 +156,7 @@
   function gruposRepetidas() {
     const g = new Map();
     estado.fotos.forEach(f => { if (f.campo && f.campo.estado === 'omitido' && f.campo.destino) { const k = f.campo.destino.toLowerCase(); if (!g.has(k)) g.set(k, { destino: f.campo.destino, fotos: [] }); g.get(k).fotos.push(f); } });
-    estado.descartadas.forEach(f => { const k = (f.destinoDesc || '').toLowerCase(); if (!k) return; if (!g.has(k)) g.set(k, { destino: f.destinoDesc, fotos: [] }); g.get(k).fotos.push(f); });
+    estado.descartadas.forEach(f => { const k = (f.destinoDesc || '').toLowerCase(); if (!k || f.otroCentro) return; if (!g.has(k)) g.set(k, { destino: f.destinoDesc, fotos: [] }); g.get(k).fotos.push(f); });
     g.forEach((v, k) => { const gan = estado.fotos.find(f => f.campo && f.campo.estado !== 'omitido' && (f.campo.destino || '').toLowerCase() === k); if (gan) v.fotos.unshift(gan); });
     return [...g.values()].filter(v => v.fotos.length > 1 || v.fotos.some(f => f.descartadaPor));
   }
@@ -191,8 +199,9 @@
     const mal = estado.fotos.filter(f => f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido'));
     const nP = estado.fotos.filter(f => f.origen !== 'def').length, nD = n - nP;
     comprobarLuego(); pintarRepetidas();
-    $('infoFotos').textContent = `${n} fotos (${nP} de posiciones${nD ? `, ${nD} de defectos` : ', sin ZIP de defectos'}${estado.descartadas.length ? `; ${estado.descartadas.length} repetida${estado.descartadas.length === 1 ? '' : 's'} descartada${estado.descartadas.length === 1 ? '' : 's'}` : ''}) · ${ren} renombradas con CT ${estado.ctFotos}${n - ren - mal.length ? ` · ${n - ren - mal.length} ya tenían su nombre` : ''}${mal.length ? ` · ${mal.length} sin renombrar` : ''}. Se redimensionan a 1366×768.`;
-    const filas = estado.fotos.map(f => `<tr${f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido') ? ' class="t-aviso"' : ''}><td>${f.origen === 'def' ? 'Defectos' : 'Posiciones'}</td><td>${esc(f.crudo)}</td><td>${esc(f.nombre)}</td><td>${f.campo ? (f.campo.estado === 'renombrado' ? 'Renombrada' : f.campo.estado === 'igual' ? 'Igual' : (f.campo.estado === 'omitido' ? 'Omitida' : 'Ignorada') + ' (' + esc(f.campo.motivo) + ')') : ''}</td></tr>`).join('');
+    const nRep = estado.descartadas.filter(f => !f.otroCentro).length, nOtro = estado.descartadas.length - nRep;
+    $('infoFotos').textContent = `${n} fotos (${nP} de posiciones${nD ? `, ${nD} de defectos` : ', sin ZIP de defectos'}${nRep ? `; ${nRep} repetida${nRep === 1 ? '' : 's'} descartada${nRep === 1 ? '' : 's'}` : ''}${nOtro ? `; ${nOtro} de otro centro, fuera` : ''}) · ${ren} renombradas con CT ${estado.ctFotos}${n - ren - mal.length ? ` · ${n - ren - mal.length} ya tenían su nombre` : ''}${mal.length ? ` · ${mal.length} sin renombrar` : ''}. Se redimensionan a 1366×768.`;
+    const filas = estado.fotos.map(f => `<tr${f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido') ? ' class="t-aviso"' : ''}><td>${f.origen === 'def' ? 'Defectos' : 'Posiciones'}</td><td>${esc(f.crudo)}${f.crudoVK && f.crudoVK !== f.crudo ? `<br><span class="info">VK corregido: ${esc(f.crudoVK)}</span>` : ''}</td><td>${esc(f.nombre)}</td><td>${f.campo ? (f.campo.estado === 'renombrado' ? 'Renombrada' : f.campo.estado === 'igual' ? 'Igual' : (f.campo.estado === 'omitido' ? 'Omitida' : 'Ignorada') + ' (' + esc(f.campo.motivo) + ')') : ''}</td></tr>`).join('');
     $('detFotos').innerHTML = `<details${mal.length ? ' open' : ''}><summary>Nombres de las fotos${mal.length ? ` (${mal.length} sin renombrar)` : ''}</summary><table><tr><th>ZIP</th><th>Nombre en el ZIP</th><th>Nombre nuevo</th><th></th></tr>${filas}</table></details>`;
   }
   zonaDrop($('dropFotos'), $('fFotos'), fs => anadirFotos(fs, 'pos'));
@@ -241,20 +250,28 @@
   });
 
   $('btnNuevo').addEventListener('click', () => {
-    if (!confirm('¿Empezar un proyecto nuevo? Se borra todo lo del proyecto actual: tablas, fotos, KMZ, fotos elegidas para el Excel y el envío pendiente al informe.')) return;
+    if (!confirm('¿Empezar un proyecto nuevo? Se borra todo lo del proyecto actual: tablas, correcciones, fotos, KMZ, captura del ANEXO I, ANEXO III, datos del informe/certificado y el envío pendiente al informe.')) return;
     // pantalla
     $('txtMain').value = ''; $('txtDef').value = ''; $('txtComp').value = ''; $('chkSuf1').checked = false;
     $('res1').innerHTML = ''; $('res2').innerHTML = ''; $('infoMain').textContent = ''; $('infoDef').textContent = '';
     $('infoKmz').textContent = 'Ningún KMZ cargado.'; $('btnUsarGenerado').hidden = true;
     $('fotosPick').innerHTML = '<div class="info">Carga el KMZ modificado para elegir las fotos.</div>';
-    ['fMain', 'fDef', 'fFotos', 'fKmz'].forEach(id => { $(id).value = ''; });
+    ['fMain', 'fDef', 'fFotos', 'fFotosDef', 'fKmz', 'fCaptura'].forEach(id => { if ($(id)) $(id).value = ''; });
+    ['revAppsheet', 'comprobacion', 'repetidas', 'detFotos', 'res3', 'p3Defs', 'p3DirInfo'].forEach(id => { if ($(id)) $(id).innerHTML = ''; });
+    // captura del ANEXO I y paso 3
+    if ($('p3CapPrev').src) { try { URL.revokeObjectURL($('p3CapPrev').src); } catch (e) {} }
+    $('p3CapPrev').removeAttribute('src'); $('p3CapPrev').hidden = true; $('btnQuitarCaptura').hidden = true;
+    ['p3Tec', 'p3Fecha', 'p3Cd', 'p3Dir', 'p3Pob'].forEach(id => { $(id).value = ''; });
+    $('p3Form').hidden = true; $('p3Vacio').hidden = false;
     // memoria de la página
     if (estado.miniaturas) estado.miniaturas.forEach(u => { if (u) URL.revokeObjectURL(u); });
     estado.miniaturas = new Map(); estado.fotoElegida = {}; estado.avisoRegenerar = false; estado.fotosMarcadas = false; estado.tablaAvisada = null;
-    estado.fotos = []; estado.descartadas = []; estado.kmzGenerado = null; estado.kmzModificado = null; estado.kmzLeido = null; estado.modelo = null; estado.informe = null;
+    (estado.fotos || []).concat(estado.descartadas || []).forEach(f => { if (f.mini) f.mini.then(u => URL.revokeObjectURL(u)).catch(() => {}); });
+    estado.captura = null; estado.anexo3 = null; estado.p3Defs = []; estado.gruposRep = null; estado.revDeshacer = null; estado.carpetaHecha = false; estado.ctFotos = '';
+    estado.fotos = []; estado.descartadas = []; estado.mapaVK = {}; estado.revAplicada = null; estado.revPendiente = null; estado.kmzGenerado = null; estado.kmzModificado = null; estado.kmzLeido = null; estado.modelo = null; estado.informe = null;
     clearTimeout(estado.tGrav);
     // memoria del navegador (el orden de gravedad es un ajuste y se conserva)
-    [LS.main, LS.def, LS.suf, LS.comp, LS.orig, LS.mapa, 'jdev_kmz_informe'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    [LS.main, LS.def, LS.suf, LS.comp, LS.orig, LS.mapa, LS.vk, LS.rev, 'jdev_kmz_informe'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     pintarFotos(); actualizarBtnExcel(); pintarNumeracion(); $('detSecc').open = false; $('secciones').innerHTML = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
@@ -603,6 +620,77 @@
 
 
 
+
+
+  // ───────── Revisión de las tablas de AppSheet (CT / VK / fotos cruzados) ─────────
+  estado.mapaVK = lsJson(LS.vk, {}); estado.revAplicada = lsJson(LS.rev, null);
+  const letraCol = k => { let s = ''; k++; while (k > 0) { const r = (k - 1) % 26; s = String.fromCharCode(65 + r) + s; k = Math.floor((k - 1) / 26); } return s; };
+  function revisarTablas() {
+    const zona = $('revAppsheet'); if (!zona) return;
+    let r = null;
+    try { r = C.revisarAppsheet($('txtMain').value, $('txtDef').value); } catch (e) { console.error(e); }
+    estado.revPendiente = r && (r.cambios.length || r.quitadas.length) ? r : null;
+    const ap = estado.revAplicada;
+    let h = '';
+    if (estado.revPendiente) {
+      const nP = r.cambios.filter(c => c.tabla === 'POSICIONES').length, nD = r.cambios.length - nP;
+      h += `<div class="num-box"><b>⚠ Datos cruzados de AppSheet</b> en el centro ${esc(r.ct)}: ${r.cambios.length} celda${r.cambios.length === 1 ? '' : 's'} que corregir (${nP} en posiciones, ${nD} en defectos)${r.quitadas.length ? ` y ${r.quitadas.length} fila${r.quitadas.length === 1 ? '' : 's'} de otro centro` : ''}.
+        <div class="info">El VK y el nombre de las fotos mandan sobre la columna CT; el VK se rehace con CT + cuadro + salida + apoyo; los negativos pasan a positivos; las rutas de las fotos, los defectos y las fotos del ZIP pasan al VK nuevo.</div>
+        ${tablaCambios(r)}
+        <div class="acciones" style="margin-top:8px"><button class="peq" id="btnAplicarRev">Aplicar correcciones</button></div></div>`;
+    } else if (ap) {
+      h += `<div class="num-box ok">✔ Correcciones de AppSheet aplicadas: ${ap.cambios.length} celda${ap.cambios.length === 1 ? '' : 's'}${ap.quitadas.length ? `, ${ap.quitadas.length} fila${ap.quitadas.length === 1 ? '' : 's'} de otro centro quitada${ap.quitadas.length === 1 ? '' : 's'}` : ''}${Object.keys(estado.mapaVK).length ? ` y ${Object.keys(estado.mapaVK).length} VK cambiado${Object.keys(estado.mapaVK).length === 1 ? '' : 's'} (las fotos del ZIP se renombran con el VK nuevo)` : ''}.
+        <div class="acciones" style="margin-top:6px"><button class="sec peq" id="btnListadoRev">Descargar listado de cambios</button><button class="sec peq" id="btnCopiarMain">Copiar posiciones corregidas</button>${$('txtDef').value.trim() ? '<button class="sec peq" id="btnCopiarDef">Copiar defectos corregidos</button>' : ''}<button class="sec peq" id="btnDeshacerRev">Deshacer</button></div>
+        <details><summary>Ver los cambios</summary>${tablaCambios(ap)}</details></div>`;
+    }
+    if (r && r.revisar.length) h += `<div style="margin-top:6px">${listaAvisos(r.revisar, 't-aviso')}</div>`;
+    zona.innerHTML = h;
+  }
+  function tablaCambios(r) {
+    const filas = r.cambios.map(c => `<tr><td>${c.tabla}</td><td>${letraCol(c.col)}${c.fila}</td><td>${esc(c.antes)}</td><td>${esc(c.despues)}</td><td>${esc(c.motivo)}</td></tr>`).join('')
+      + r.quitadas.map(q => `<tr class="t-aviso"><td>${q.tabla || 'POSICIONES'}</td><td>fila ${q.fila}</td><td>${esc(q.vk)}</td><td>(fila quitada)</td><td>${esc(q.motivo)}</td></tr>`).join('');
+    return `<details${r.cambios.length + r.quitadas.length <= 12 ? ' open' : ''}><summary>Cambios (${r.cambios.length + r.quitadas.length})</summary><div class="scroll" style="max-height:320px"><table class="revt"><colgroup><col style="width:92px"><col style="width:58px"><col><col><col style="width:22%"></colgroup><tr><th>Tabla</th><th>Celda</th><th>Antes</th><th>Después</th><th>Motivo</th></tr>${filas}</table></div></details>`;
+  }
+  function aplicarRevision() {
+    const r = estado.revPendiente; if (!r) return;
+    estado.revDeshacer = { main: $('txtMain').value, def: $('txtDef').value, mapa: Object.assign({}, estado.mapaVK), ap: estado.revAplicada };
+    // mapa acumulado: si un VK ya se había cambiado, se encadena
+    const mapa = Object.assign({}, estado.mapaVK);
+    Object.keys(mapa).forEach(k => { if (r.mapaVK[mapa[k]]) mapa[k] = r.mapaVK[mapa[k]]; });
+    Object.keys(r.mapaVK).forEach(k => { if (!(k in mapa)) mapa[k] = r.mapaVK[k]; });
+    estado.mapaVK = mapa; lsSet(LS.vk, JSON.stringify(mapa));
+    const prev = estado.revAplicada || { cambios: [], quitadas: [] };
+    estado.revAplicada = { ct: r.ct, cambios: prev.cambios.concat(r.cambios), quitadas: prev.quitadas.concat(r.quitadas) };
+    lsSet(LS.rev, JSON.stringify(estado.revAplicada));
+    $('txtMain').value = r.mainText; lsSet(LS.main, r.mainText);
+    $('txtDef').value = r.defText; lsSet(LS.def, r.defText);
+    ['txtMain', 'txtDef'].forEach(id => $(id).dispatchEvent(new Event('input')));
+    if (estado.fotos.length) { renombrarCampo(); pintarFotos(); }
+  }
+  $('revAppsheet').addEventListener('click', async e => {
+    if (e.target.id === 'btnAplicarRev') aplicarRevision();
+    else if (e.target.id === 'btnDeshacerRev') {
+      const d = estado.revDeshacer;
+      if (!d) { if (!confirm('Se borra el registro de correcciones y el cambio de nombres de las fotos. Las tablas se quedan como están (pega de nuevo las originales si quieres volver atrás). ¿Seguir?')) return; estado.mapaVK = {}; estado.revAplicada = null; }
+      else { estado.mapaVK = d.mapa; estado.revAplicada = d.ap; $('txtMain').value = d.main; $('txtDef').value = d.def; lsSet(LS.main, d.main); lsSet(LS.def, d.def); estado.revDeshacer = null; }
+      lsSet(LS.vk, JSON.stringify(estado.mapaVK)); lsSet(LS.rev, JSON.stringify(estado.revAplicada));
+      ['txtMain', 'txtDef'].forEach(id => $(id).dispatchEvent(new Event('input')));
+      if (estado.fotos.length) { renombrarCampo(); pintarFotos(); }
+    }
+    else if (e.target.id === 'btnCopiarMain' || e.target.id === 'btnCopiarDef') {
+      const t = $(e.target.id === 'btnCopiarMain' ? 'txtMain' : 'txtDef').value;
+      try { await navigator.clipboard.writeText(t); e.target.textContent = '✔ Copiada'; } catch (er) { alert('No se pudo copiar: selecciona el texto de la tabla y cópialo a mano.'); }
+    }
+    else if (e.target.id === 'btnListadoRev') {
+      const ap = estado.revAplicada; if (!ap) return;
+      const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const filas = [['Tabla', 'Fila', 'Celda', 'Antes', 'Después', 'Motivo']].concat(
+        ap.cambios.map(c => [c.tabla, c.fila, letraCol(c.col) + c.fila, c.antes, c.despues, c.motivo]),
+        ap.quitadas.map(x => [x.tabla || 'POSICIONES', x.fila, '', x.vk, 'fila quitada', x.motivo]),
+        [[]], [['Fotos del ZIP', '', '', 'VK antiguo', 'VK nuevo', '']], Object.keys(estado.mapaVK).map(k => ['', '', '', k, estado.mapaVK[k], 'las fotos que empiezan por el VK antiguo se renombran']));
+      descargar(new Blob(['﻿' + filas.map(f => f.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' }), `Cambios AppSheet - ${ap.ct}.csv`);
+    }
+  });
 
   // ───────── Comprobación previa: qué falta o no encaja antes de generar ─────────
   function comprobar() {
@@ -984,7 +1072,6 @@
   $('detSecc').addEventListener('toggle', pintarSecciones);
 
   // ───────── numeración de apoyos: huecos, repetidos y renumeración ─────────
-  const lsJson = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
   function mapaTotal() { return lsJson(LS.mapa, {}); }
   function renombrar(nombre) {
     const m = mapaTotal(), ks = Object.keys(m).sort((a, b) => b.length - a.length);
@@ -1073,7 +1160,7 @@
     let ct = ''; try { ct = modeloDesdeTablas().ct; } catch (e) {}
     descargar(await z.generateAsync({ type: 'blob' }), `Fotos renombradas${ct ? ' - ' + ct : ''}.zip`);
   }
-  pintarNumeracion(); estado.mapaListo = true; actualizarBtnExcel(); comprobarLuego();
+  revisarTablas(); pintarNumeracion(); estado.mapaListo = true; actualizarBtnExcel(); comprobarLuego();
 
   // ───────── PWA y aviso de versión nueva ─────────
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
