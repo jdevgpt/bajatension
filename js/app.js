@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -84,25 +84,28 @@
   //   f.crudo: nombre tal cual viene del ZIP · f.orig: nombre tras RenombrarImagenes · f.nombre: + renumeración de apoyos
   //   f.leerOriginal(): bytes originales · f.leer(): bytes redimensionados (los que van al KMZ y a la carpeta FOTOS)
   const ES_IMG = /\.(jpe?g|png|gif|webp)$/i;
-  function nuevaFoto(nombre, leerOriginal) {
+  function nuevaFoto(nombre, leerOriginal, origen) {
     const crudo = nombre.split(/[\\/]/).pop();
-    const f = { crudo, orig: crudo, nombre: renombrar(crudo), leerOriginal, red: null };
+    const f = { crudo, orig: crudo, nombre: renombrar(crudo), leerOriginal, red: null, origen };
     f.leer = () => f.red || (f.red = redimensionar(f));
     return f;
   }
-  async function anadirFotos(files) {
+  async function anadirFotos(files, origen) {
+    origen = origen || 'pos';
     $('infoFotos').textContent = 'Leyendo…';
+    // misma carpeta: una foto con el mismo nombre que otra ya cargada la sustituye (como al copiar en Windows)
+    const meter = nf => { const i = estado.fotos.findIndex(x => x.crudo.toLowerCase() === nf.crudo.toLowerCase()); if (i >= 0) estado.fotos[i] = nf; else estado.fotos.push(nf); };
     for (const f of files) {
       if (/\.zip$/i.test(f.name)) {
         try {
           const z = await JSZip.loadAsync(f);
           z.forEach((path, entry) => {
             if (entry.dir || /(^|\/)(__MACOSX|\.)/.test(path)) return;
-            if (ES_IMG.test(path)) estado.fotos.push(nuevaFoto(path, () => entry.async('uint8array')));
+            if (ES_IMG.test(path)) meter(nuevaFoto(path, () => entry.async('uint8array'), origen));
           });
         } catch (e) { alert('No se pudo abrir ' + f.name + ': ' + e.message); }
       } else if (ES_IMG.test(f.name)) {
-        estado.fotos.push(nuevaFoto(f.name, async () => new Uint8Array(await f.arrayBuffer())));
+        meter(nuevaFoto(f.name, async () => new Uint8Array(await f.arrayBuffer()), origen));
       }
     }
     renombrarCampo(); pintarFotos(); marcarFotosSiToca();
@@ -142,14 +145,16 @@
     const n = estado.fotos.length;
     $('btnQuitarFotos').hidden = !n; $('btnCarpeta').hidden = !n;
     if (!n) { $('infoFotos').textContent = 'Sin fotos.'; $('detFotos').innerHTML = ''; return; }
-    if (!estado.ctFotos) { $('infoFotos').textContent = `${n} fotos cargadas. Pega la tabla de posiciones para renombrarlas con su CT.`; $('detFotos').innerHTML = ''; return; }
+    if (!estado.ctFotos) { $('infoFotos').textContent = `${n} fotos cargadas (${estado.fotos.filter(f => f.origen !== 'def').length} de posiciones, ${estado.fotos.filter(f => f.origen === 'def').length} de defectos). Pega la tabla de posiciones para renombrarlas con su CT.`; $('detFotos').innerHTML = ''; return; }
     const ren = estado.fotos.filter(f => f.campo && f.campo.estado === 'renombrado').length;
     const mal = estado.fotos.filter(f => f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido'));
-    $('infoFotos').textContent = `${n} fotos · ${ren} renombradas con CT ${estado.ctFotos}${n - ren - mal.length ? ` · ${n - ren - mal.length} ya tenían su nombre` : ''}${mal.length ? ` · ${mal.length} sin renombrar` : ''}. Se redimensionan a 1366×768.`;
-    const filas = estado.fotos.map(f => `<tr${f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido') ? ' class="t-aviso"' : ''}><td>${esc(f.crudo)}</td><td>${esc(f.nombre)}</td><td>${f.campo ? (f.campo.estado === 'renombrado' ? 'Renombrada' : f.campo.estado === 'igual' ? 'Igual' : (f.campo.estado === 'omitido' ? 'Omitida' : 'Ignorada') + ' (' + esc(f.campo.motivo) + ')') : ''}</td></tr>`).join('');
-    $('detFotos').innerHTML = `<details${mal.length ? ' open' : ''}><summary>Nombres de las fotos${mal.length ? ` (${mal.length} sin renombrar)` : ''}</summary><table><tr><th>Nombre en el ZIP</th><th>Nombre nuevo</th><th></th></tr>${filas}</table></details>`;
+    const nP = estado.fotos.filter(f => f.origen !== 'def').length, nD = n - nP;
+    $('infoFotos').textContent = `${n} fotos (${nP} de posiciones${nD ? `, ${nD} de defectos` : ', sin ZIP de defectos'}) · ${ren} renombradas con CT ${estado.ctFotos}${n - ren - mal.length ? ` · ${n - ren - mal.length} ya tenían su nombre` : ''}${mal.length ? ` · ${mal.length} sin renombrar` : ''}. Se redimensionan a 1366×768.`;
+    const filas = estado.fotos.map(f => `<tr${f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido') ? ' class="t-aviso"' : ''}><td>${f.origen === 'def' ? 'Defectos' : 'Posiciones'}</td><td>${esc(f.crudo)}</td><td>${esc(f.nombre)}</td><td>${f.campo ? (f.campo.estado === 'renombrado' ? 'Renombrada' : f.campo.estado === 'igual' ? 'Igual' : (f.campo.estado === 'omitido' ? 'Omitida' : 'Ignorada') + ' (' + esc(f.campo.motivo) + ')') : ''}</td></tr>`).join('');
+    $('detFotos').innerHTML = `<details${mal.length ? ' open' : ''}><summary>Nombres de las fotos${mal.length ? ` (${mal.length} sin renombrar)` : ''}</summary><table><tr><th>ZIP</th><th>Nombre en el ZIP</th><th>Nombre nuevo</th><th></th></tr>${filas}</table></details>`;
   }
-  zonaDrop($('dropFotos'), $('fFotos'), anadirFotos);
+  zonaDrop($('dropFotos'), $('fFotos'), fs => anadirFotos(fs, 'pos'));
+  zonaDrop($('dropFotosDef'), $('fFotosDef'), fs => anadirFotos(fs, 'def'));
   $('btnQuitarFotos').addEventListener('click', () => { estado.fotos = []; estado.fotosMarcadas = false; estado.carpetaHecha = false; pintarFotos(); });
 
 
@@ -333,7 +338,8 @@
 
   // ───────── PASO 1: KMZ ─────────
   $('btnKmz').addEventListener('click', async () => {
-    if (!estado.fotos.length && !confirm('No has cargado el ZIP de fotos.\n\n¿Generar el KMZ sin fotos?\n\nAceptar: generar sin fotos · Cancelar: volver para cargarlas')) { resaltar('dropFotos'); return; }
+    if (!estado.fotos.length && !confirm('No has cargado el ZIP de fotos de posiciones.\n\n¿Generar el KMZ sin fotos?\n\nAceptar: generar sin fotos · Cancelar: volver para cargarlas')) { resaltar('dropFotos'); return; }
+    if (estado.fotos.length && C.splitTable($('txtDef').value).length && !estado.fotos.some(f => f.origen === 'def') && !confirm('Hay tabla de defectos pero no has cargado el ZIP de fotos de defectos.\n\n¿Seguir sin las fotos de los defectos?\n\nAceptar: seguir · Cancelar: volver para cargarlo')) { resaltar('dropFotosDef'); return; }
     const btn = $('btnKmz'); btn.disabled = true; btn.textContent = 'Generando…';
     try {
       const m = modeloDesdeTablas();

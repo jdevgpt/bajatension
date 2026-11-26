@@ -93,6 +93,7 @@
   .tsec .comp{font-size:12px;color:var(--gris-7);display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap}
   .tsec .smas,.tsec .sx{padding:3px 8px;font-size:12px}
   .err-box{background:#fdecea;border:1px solid #f5c2bf;border-radius:8px;padding:8px 12px;margin:8px 0;color:var(--error)}
+  .dos{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:640px){.dos{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -139,11 +140,15 @@
       <div class="info">Para cada par de apoyos seguidos: si ya es un tramo de esa salida, no cambia nada; si es un tramo de otra salida, dibuja las líneas una al lado de otra en orden de salida (SAL01, SAL02…), a 1,5 m (con más de 3 se juntan sin solaparse); la que luego se desvía va desde el principio por ese lado para no cruzarse; y si el tramo no está en la tabla (como 12 → 7), lo dibuja. El 0 es el PT. También vale la forma antigua «3-8 SAL02» (del 3 al 8 por la red, también va la SAL02).</div>
     </div>
     <div style="margin-top:14px">
-      <label class="t">Fotografías <span class="opc">(opcional · ZIP o imágenes sueltas, puedes añadir varios)</span></label>
-      <div class="drop" id="dropFotos">Arrastra aquí el ZIP de fotos o <u>pulsa para elegir</u></div>
-      <input type="file" id="fFotos" accept=".zip,image/*" multiple>
+      <label class="t">Fotografías <span class="opc">(los ZIP tal como los descargas)</span></label>
+      <div class="dos">
+        <div><div class="drop" id="dropFotos">ZIP de fotos de <b>posiciones</b><br>arrastra aquí o <u>pulsa para elegir</u></div>
+          <input type="file" id="fFotos" accept=".zip,image/*" multiple></div>
+        <div><div class="drop" id="dropFotosDef">ZIP de fotos de <b>defectos</b> <span class="opc">(si hay defectos)</span><br>arrastra aquí o <u>pulsa para elegir</u></div>
+          <input type="file" id="fFotosDef" accept=".zip,image/*" multiple></div>
+      </div>
       <div class="fila"><span class="info" id="infoFotos">Sin fotos.</span><button class="sec peq" id="btnQuitarFotos" hidden>Quitar fotos</button></div>
-      <div class="info">Sube el ZIP tal como lo descargas: las fotos se renombran como hace RenombrarImagenes.cmd (con el CT de la tabla de posiciones) y se redimensionan a 1366×768.</div>
+      <div class="info">Las fotos de los dos ZIP van a la misma carpeta y se renombran juntas como hace RenombrarImagenes.cmd (con el CT de la tabla de posiciones) y se redimensionan a 1366×768.</div>
       <div id="detFotos"></div>
       <label class="chk"><input type="checkbox" id="chkSuf1"> <span>En este ZIP el sufijo <b>_1</b> es la foto del CGP/CPM (por defecto <b>_1</b> es una foto general adicional).</span></label>
     </div>
