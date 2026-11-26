@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.5.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -334,6 +334,8 @@
   $('btnKmz').addEventListener('click', async () => {
     if (!estado.fotos.length && !confirm('No has cargado el ZIP de fotos de posiciones.\n\n¿Generar el KMZ sin fotos?\n\nAceptar: generar sin fotos · Cancelar: volver para cargarlas')) { resaltar('dropFotos'); return; }
     if (estado.fotos.length && C.splitTable($('txtDef').value).length && !estado.fotos.some(f => f.origen === 'def') && !confirm('Hay tabla de defectos pero no has cargado el ZIP de fotos de defectos.\n\n¿Seguir sin las fotos de los defectos?\n\nAceptar: seguir · Cancelar: volver para cargarlo')) { resaltar('dropFotosDef'); return; }
+    const nAv = comprobar();
+    if (nAv && !confirm('La comprobación ha encontrado cosas que revisar (las tienes encima del botón: apoyos sin INICIO, FIN o SECCIÓN, numeración, observaciones de apoyos compartidos o fotos).\n\n¿Generar el KMZ igualmente?\n\nAceptar: generar · Cancelar: revisarlo antes')) { resaltar('comprobacion'); return; }
     const btn = $('btnKmz'); btn.disabled = true; btn.textContent = 'Generando…';
     try {
       const m = modeloDesdeTablas();
@@ -565,24 +567,41 @@
   function comprobar() {
     const zona = $('comprobacion'); if (!zona) return;
     let m; try { m = modeloDesdeTablas(); } catch (e) { zona.innerHTML = ''; return; }
-    if (!estado.fotos.length) { zona.innerHTML = '<div class="info">Comprobación: carga los ZIP de fotos para ver si falta alguna.</div>'; return; }
-    if (!estado.ctFotos) { zona.innerHTML = ''; return; }
-    const ph = C.asociarFotos(m, estado.fotos.map(f => f.nombre), { sufijo1EsCGP: $('chkSuf1').checked });
     const nom = n => n.esPT ? 'PT ' + n.ct : `apoyo ${n.apoyo} (${C.salName(+n.salida)})`;
-    const sinFoto = m.nodes.filter(n => !n.fotos.length && !(n.fotosCGP || []).length).map(nom);
-    const cgpSin = m.nodes.filter(n => n.cgp && !(n.fotosCGP || []).length).map(nom);
-    const defSin = m.defectos.filter(d => !d.fotos.length).map(d => `${d.codigo} en ${nom(d.node)}`);
-    const renSin = estado.fotos.filter(f => f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido')).map(f => `${f.crudo} — ${f.campo.motivo}`);
+    const nomF = r => `apoyo ${r.apoyo} (${C.salName(+r.salida)}, fila ${r.linea})`;
+    const vacio = v => String(v == null ? '' : v).trim() === '';
+    const filas = m.filas.filter(r => !r.esPT);
+    // ── tabla de posiciones ──
+    let nNum = 0; try { const p = C.analizarNumeracion(m); nNum = (p.huecos || p.problemas || p || []).length || 0; } catch (e) {}
+    const sinIni = filas.filter(r => vacio(r.inicio)).map(nomF);
+    const sinFin = filas.filter(r => vacio(r.fin)).map(nomF);
+    const sinSec = filas.filter(r => vacio(r.seccion)).map(nomF);
+    const RE_COMP = /compart|com[uú]n|doble\s*circ|circuito\s*doble|triple|(\d+|dos|tres|cuatro)\s*circuitos|\bsal(ida)?s?\s*\.?\s*\d|\bS\s?0?\d\b|otra\s+salida|varias\s+salidas|misma\s+l[ií]nea/i;
+    const obsComp = filas.filter(r => RE_COMP.test(r.obs || '')).map(r => `${nomF(r)}: «${r.obs}»`);
     const grupos = [
-      ['Fotos que no se han podido renombrar', renSin],
-      ['Fotos que no encajan con ningún apoyo o defecto', ph.huerfanas.map(x => x.nombre + ' — ' + x.motivo)],
-      ['Apoyos sin ninguna foto', sinFoto],
-      ['Defectos sin foto', defSin],
-      ['Apoyos con CGP/CPM sin foto de la CGP/CPM', cgpSin]
-    ].filter(g => g[1].length);
-    zona.innerHTML = grupos.length
-      ? `<div class="t-aviso"><b>Comprobación antes de generar</b> (${ph.asociadas} de ${ph.total} fotos asociadas):</div>` + grupos.map(([t, l]) => `<details${l.length <= 8 ? ' open' : ''}><summary class="t-aviso">${t} (${l.length})</summary>${listaAvisos(l, 't-aviso')}</details>`).join('')
-      : `<div class="ok-box">✔ Comprobación: las ${ph.total} fotos encajan, todos los apoyos y defectos tienen foto${m.nodes.some(n => n.cgp) ? ' y todas las CGP/CPM la suya' : ''}.</div>`;
+      ['Faltan números de apoyo (arriba puedes renumerar)', nNum ? [`Hay ${nNum} problema${nNum === 1 ? '' : 's'} de numeración: revísalo en el recuadro de numeración de arriba.`] : []],
+      ['Falta INICIO', sinIni],
+      ['Falta FIN', sinFin],
+      ['Falta SECCIÓN (puedes ponerla en «Secciones de los apoyos»)', sinSec],
+      ['Observaciones que hablan de apoyos compartidos con otras salidas: indícalo en «Recorrido de salidas que pasan por apoyos de otra»', obsComp]
+    ];
+    // ── fotos ──
+    let ph = null;
+    if (estado.fotos.length && estado.ctFotos) {
+      ph = C.asociarFotos(m, estado.fotos.map(f => f.nombre), { sufijo1EsCGP: $('chkSuf1').checked });
+      grupos.push(
+        ['Fotos que no se han podido renombrar', estado.fotos.filter(f => f.campo && (f.campo.estado === 'ignorado' || f.campo.estado === 'omitido')).map(f => `${f.crudo} — ${f.campo.motivo}`)],
+        ['Fotos que no encajan con ningún apoyo o defecto', ph.huerfanas.map(x => x.nombre + ' — ' + x.motivo)],
+        ['Apoyos sin ninguna foto', m.nodes.filter(n => !n.fotos.length && !(n.fotosCGP || []).length).map(nom)],
+        ['Defectos sin foto', m.defectos.filter(d => !d.fotos.length).map(d => `${d.codigo} en ${nom(d.node)}`)],
+        ['Apoyos con CGP/CPM sin foto de la CGP/CPM', m.nodes.filter(n => n.cgp && !(n.fotosCGP || []).length).map(nom)]);
+    }
+    const mal = grupos.filter(g => g[1].length);
+    const fotosTxt = ph ? ` (${ph.asociadas} de ${ph.total} fotos asociadas)` : '';
+    zona.innerHTML = mal.length
+      ? `<div class="t-aviso"><b>Comprobación antes de generar el KMZ</b>${fotosTxt}:</div>` + mal.map(([t, l]) => `<details${l.length <= 8 ? ' open' : ''}><summary class="t-aviso">${t} (${l.length})</summary>${listaAvisos(l, 't-aviso')}</details>`).join('')
+      : `<div class="ok-box">✔ Comprobación: numeración, INICIO, FIN y SECCIÓN completos, sin observaciones de apoyos compartidos${ph ? `; las ${ph.total} fotos encajan y todos los apoyos, defectos y CGP/CPM tienen foto` : ''}.</div>` + (estado.fotos.length ? '' : '<div class="info">Carga los ZIP de fotos para comprobarlas también.</div>');
+    return mal.length;
   }
   function comprobarLuego() { clearTimeout(estado.tComp2); estado.tComp2 = setTimeout(comprobar, 400); }
 
@@ -734,6 +753,7 @@
     return h;
   }
   function pintarSecciones() {
+    comprobarLuego();
     const zona = $('secciones');
     if (!$('detSecc').open) return;
     let m = null;
@@ -902,7 +922,7 @@
     let ct = ''; try { ct = modeloDesdeTablas().ct; } catch (e) {}
     descargar(await z.generateAsync({ type: 'blob' }), `Fotos renombradas${ct ? ' - ' + ct : ''}.zip`);
   }
-  pintarNumeracion(); estado.mapaListo = true; actualizarBtnExcel();
+  pintarNumeracion(); estado.mapaListo = true; actualizarBtnExcel(); comprobarLuego();
 
   // ───────── PWA y aviso de versión nueva ─────────
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
