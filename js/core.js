@@ -473,6 +473,11 @@
         }).filter(Boolean);
         if (opciones.length === 1) [A, B] = opciones[0];
       }
+      // el apoyo de inicio puede ser de otra salida (p. ej. SAL03 10 cuelga del 9 de la SAL02): se busca por el tramo
+      if ((!A || A === 'ambiguo') && B && B !== 'ambiguo') { const t = padre.get(B); if (t && String(t.a.esPT ? 0 : +t.a.apoyo) === String(+ap[1])) A = t.a; }
+      if ((!B || B === 'ambiguo') && A && A !== 'ambiguo') { const h = model.tramos.find(t => t.a === A && t.dist != null && String(+t.b.apoyo) === String(+ap[2])); if (h) B = h.b; }
+      if (!A && origen != null) { const x = nodoPor(ap[1], null); if (x && x !== 'ambiguo') A = x; }
+      if (!B && origen != null) { const x = nodoPor(ap[2], null); if (x && x !== 'ambiguo') B = x; }
       if (A === 'ambiguo' || B === 'ambiguo') { model.avisos.push(`Tramo compartido "${l}": hay varios apoyos con ese número en distintas salidas. Indica la salida de origen, por ejemplo "SAL01 ${ap[1]}-${ap[2]} ${salName(destinos[0])}".`); return; }
       if (!A || !B) { model.avisos.push(`Tramo compartido "${l}": el apoyo ${!A ? ap[1] : ap[2]} no está en la tabla.`); return; }
       let ts = camino(A, B) || camino(B, A);
