@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.12.0';
+  const APP_VERSION = '1.13.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -464,7 +464,7 @@
     try {
       const m = modeloDesdeTablas();
       const k = await leerKmz(kmz); estado.kmzLeido = k;
-      const an = C.buildAnexo(m, C.parseKml(k.kml), { gravedad: $('txtGrav').value.split(/[\s,;]+/) });
+      const an = C.buildAnexo(m, C.parseKml(k.kml), { gravedad: $('txtGrav').value.split(/[\s,;]+/), mapaCodigos: Object.assign({}, estado.mapaVK, mapaTotal()) });
       const filas = an.filas.filter(f => f.candidatas.length);
       if (!filas.length) { zona.innerHTML = '<div class="info">No hay fotos que elegir (ni foto _1 del PT ni fotos de defectos en el KMZ).</div>'; return; }
       const leer = lectorImagenes(k.zip);
@@ -592,7 +592,7 @@
     try {
       const m = modeloDesdeTablas(); // siempre desde las tablas guardadas
       const k = await leerKmz(kmz);
-      const an = C.buildAnexo(m, C.parseKml(k.kml), { gravedad: $('txtGrav').value.split(/[\s,;]+/), fotoElegida: estado.fotoElegida });
+      const an = C.buildAnexo(m, C.parseKml(k.kml), { gravedad: $('txtGrav').value.split(/[\s,;]+/), fotoElegida: estado.fotoElegida, mapaCodigos: Object.assign({}, estado.mapaVK, mapaTotal()) });
       const tpl = await JSZip.loadAsync(Uint8Array.from(atob(window.ANEXO_TEMPLATE_B64), c => c.charCodeAt(0)));
       const gx = await C.generarAnexoXlsx(tpl, an, m.ct, lectorImagenes(k.zip));
       an.avisos.push(...gx.avisos);

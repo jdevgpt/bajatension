@@ -1231,15 +1231,19 @@
       let codigo = trim(p.name).toUpperCase();
       if (!esCodigoDefecto(codigo)) { const c = campoPopup(p.desc, 'C[oó]digo de defecto'); if (c && esCodigoDefecto(c)) codigo = c.toUpperCase(); }
       if (!esCodigoDefecto(codigo)) { avisos.push(`Marcador "${p.name}" en ${p.carpeta} sin código de defecto reconocible: se ignora.`); return; }
-      const antes = campoPopup(p.desc, 'Apoyo asociado');
-      const nAntes = antes ? model.nodes.find(n => n.code === antes || n.name === antes) : null;
-      let best = null, bd = Infinity;
-      if (nAntes && nAntes.coords && pos(nAntes) && haversine(p, nAntes.coords) < 1) { best = nAntes; bd = 0; } // marcador sin mover: sigue con su apoyo aunque el apoyo se haya movido
-      else conPos.forEach(n => { const x = haversine(pos(n), p); if (x < bd) { bd = x; best = n; } });
-      if (!best) return;
-      if (bd > 3) avisos.push(`Defecto ${codigo}: el marcador está a ${fmtMiles(bd)} m del apoyo más cercano (${best.name}); se asigna a ese apoyo.`);
+      // El defecto va SIEMPRE con su apoyo («Apoyo asociado» del popup), aunque el marcador se mueva en Google Earth.
+      // Solo si el marcador no dice de qué apoyo es (p. ej. uno añadido a mano) se asigna al apoyo más cercano.
+      let antes = campoPopup(p.desc, 'Apoyo asociado');
+      const mapaCod = opts.mapaCodigos || {};
+      const buscar = c => c ? model.nodes.find(n => n.code === c || n.name === c || (n.esPT && (c === n.ct || c === n.ct + '000000'))) : null;
+      let best = buscar(antes) || buscar(mapaCod[antes]), bd = 0;
+      if (!best) {
+        if (antes) avisos.push(`Defecto ${codigo}: su apoyo asociado (${antes}) ya no está en la tabla; se asigna al apoyo más cercano.`);
+        bd = Infinity; conPos.forEach(n => { const x = haversine(pos(n), p); if (x < bd) { bd = x; best = n; } });
+        if (!best) return;
+        if (bd > 3) avisos.push(`Defecto ${codigo}: el marcador está a ${fmtMiles(bd)} m del apoyo más cercano (${best.name}); se asigna a ese apoyo.`);
+      }
       const desc = campoPopup(p.desc, 'Descripci[oó]n') || '';
-      if (antes && antes !== best.code && antes !== best.name) resumen.push(`Defecto ${codigo} movido en el KMZ: de ${antes} a ${best.esPT ? best.name : best.code}.`);
       if (!defPorNodo.has(best)) defPorNodo.set(best, []);
       defPorNodo.get(best).push({ codigo, desc, imgs: p.imgs });
     });
