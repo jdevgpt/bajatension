@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.14.0';
+  const APP_VERSION = '1.15.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -928,7 +928,7 @@
       <label>Salida<select id="sbSal">${salidas.map(s => `<option value="${s}">${C.salName(s)}</option>`).join('')}</select></label>
       <label>Desde apoyo<input id="sbDe" type="number" min="1"></label><label>Hasta apoyo<input id="sbA" type="number" min="1"></label>
       <label>Sección${selectorSeccion('', 'id="sbSec"')}</label><button class="peq" id="btnSecBulk">Aplicar</button>
-      <label>o va también la salida<input id="sbComp" type="number" min="1" style="width:70px" title="Puede ser una salida que no tenga apoyos propios en la tabla"></label><button class="peq sec" id="btnCompBulk">Añadir salida</button></div>
+      <label>o va también la salida<select id="sbComp"><option value="">—</option>${[...new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].concat(filas.map(f => f.salida)))].sort((a, b) => a - b).map(x => `<option value="${x}">${C.salName(x)}</option>`).join('')}</select></label><button class="peq sec" id="btnCompBulk">Añadir salida</button></div>
       <div class="info">La salida que va «también» puede ser una que no tenga ningún apoyo propio (por ejemplo, la SAL02 que va junto a la SAL01 en 5 apoyos y termina con ella): se dibuja su línea paralela y cuentan sus metros.</div>`;
     const cl = estado.clipSecc;
     if (cl) h += `<div class="num-box" id="barraPegar" style="margin:8px 0">📋 Copiado el <b>apoyo ${esc(cl.de)}</b>: ${esc(cl.resumen)}. Marca los apoyos donde pegarlo
@@ -976,19 +976,15 @@
     const tr = e.target.closest('tr[data-i]'); if (!tr) return;
     const f = estado.secc.filas[+tr.dataset.i];
     if (e.target.classList.contains('ssal')) {
-      // salidas con apoyos en la tabla + las que solo existen como compartidas (sin apoyos propios)
-      const enComp = estado.secc.filas.flatMap(x => x.compartidas.map(c => c.salida));
-      const todas = [...new Set(estado.secc.filas.map(x => x.salida).concat(enComp))];
-      const sals = todas.filter(x => x !== f.salida && !f.compartidas.some(c => c.salida === x)).sort((a, b) => a - b);
-      const nueva = Math.max(0, ...todas) + 1;
-      const conApoyos = new Set(estado.secc.filas.map(x => x.salida));
+      // SAL01…SAL10 siempre disponibles (aunque no tengan apoyos propios) + las que haya por encima de 10
+      const enTabla = estado.secc.filas.map(x => x.salida).concat(estado.secc.filas.flatMap(x => x.compartidas.map(c => c.salida)));
+      const sals = [...new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].concat(enTabla))].filter(x => x !== f.salida && !f.compartidas.some(c => c.salida === x)).sort((a, b) => a - b);
       const sel = document.createElement('select'); sel.className = 'ssel';
-      sel.innerHTML = '<option value="">¿Qué salida?</option>' + sals.map(x => `<option value="${x}">${C.salName(x)}${conApoyos.has(x) ? '' : ' (sin apoyos propios)'}</option>`).join('')
-        + `<option value="${nueva}">${C.salName(nueva)} — salida nueva sin apoyos propios</option><option value="__n">Otra (escribir número)…</option>`;
+      sel.innerHTML = '<option value="">¿Qué salida?</option>' + sals.map(x => `<option value="${x}">${C.salName(x)}</option>`).join('') + '<option value="__n">Otra…</option>';
       e.target.replaceWith(sel); sel.focus();
       sel.addEventListener('change', () => {
         let d = sel.value; if (!d) return;
-        if (d === '__n') { d = prompt('Número de la salida (por ejemplo 4):', ''); if (!d || !/^\d+$/.test(d.trim())) { pintarSecciones(); return; } }
+        if (d === '__n') { d = prompt('Salida (por ejemplo SAL12 o 12):', ''); const mm = String(d || '').toUpperCase().match(/^\s*(?:SAL(?:IDA)?\s*)?0*(\d+)\s*$/); if (!mm) { pintarSecciones(); return; } d = mm[1]; }
         anadirSalidaTramo(f, +d);
       });
       return;
