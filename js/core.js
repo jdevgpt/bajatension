@@ -132,7 +132,10 @@
       const ctIdx = f.findIndex((x, k) => k < (ic < 0 ? f.length : ic) && /^\d{3,6}$/.test(x));
       const coords = f.map(parseCoords).find(Boolean) || null;
       const explicitos = f.filter(x => /^\d{7,}[A-Z0-9_]*$/i.test(x) || /^(\d+_){2,3}\d+(_[A-Z0-9_]+)?$/i.test(x));
-      out.push({ linea: i + 1, tipo: ic > 0 ? f[0] : '', ct: ctIdx >= 0 ? f[ctIdx] : '', codigo, desc, coords, explicitos, origen: 'tabla de defectos' });
+      // Badajoz/Sevilla: varios ZOBX en un apoyo → la Key acaba en ZOBX_1, ZOBX_2…
+      let inst = '';
+      if (codigo === 'ZOBX') { const kx = f.map(x => String(x).match(/^\d{7,}ZOBX_(\d+)$/i) || String(x).match(/^ZOBX_(\d+)$/i)).find(Boolean); if (kx) inst = kx[1]; }
+      out.push({ linea: i + 1, tipo: ic > 0 ? f[0] : '', ct: ctIdx >= 0 ? f[ctIdx] : '', codigo, desc, coords, explicitos, inst, origen: 'tabla de defectos' });
     });
     return { defectos: out, avisos };
   }
@@ -251,7 +254,7 @@
       if (defs.some(x => x.node === node && x.codigo === d.codigo && x.origen === 'tabla principal' && (!x.desc || upperEs(x.desc) === upperEs(d.desc)))) {
         const x = defs.find(x => x.node === node && x.codigo === d.codigo && x.origen === 'tabla principal'); if (!x.desc) x.desc = d.desc; return;
       }
-      defs.push({ codigo: d.codigo, desc: d.desc, node, metodo, dist, origen: 'tabla de defectos', linea: d.linea, coords: d.coords });
+      defs.push({ codigo: d.codigo, desc: d.desc, node, metodo, dist, origen: 'tabla de defectos', linea: d.linea, coords: d.coords, inst: d.inst || '' });
     });
     defs.forEach(d => {
       d.lejos = d.dist != null && d.dist > 100;
@@ -580,7 +583,15 @@
       const sufU = suf.toUpperCase();
       const dc = codes.find(c => sufU === c || sufU.startsWith(c + '_') || sufU.startsWith(c + '.') || sufU.startsWith(c + ' ') || sufU.startsWith(c + '-'));
       let destino;
-      if (dc) destino = { tipo: 'defecto', codigo: dc };
+      const zobxs = node.defectos.filter(d => d.codigo === 'ZOBX');
+      if (dc === 'ZOBX' && zobxs.some(d => d.inst)) {
+        // varios ZOBX: el número tras «ZOBX_» dice cuál es; sin número, el que no lleva número
+        const mz = sufU.match(/^ZOBX_?(\d+)?/); const n = mz && mz[1] ? mz[1] : '';
+        const d = zobxs.find(x => (x.inst || '') === n) || (n === '' ? null : null);
+        if (d) destino = { tipo: 'defecto', codigo: 'ZOBX', def: d };
+        else { huerfanas.push({ nombre: it.full, motivo: `foto de ZOBX_${n} pero ${node.name} no tiene ese ZOBX en la tabla de defectos` }); return; }
+      }
+      else if (dc) destino = { tipo: 'defecto', codigo: dc };
       else if (/^(?:IMAGEN\s*)?CGP[-_ ]?C[GP]M\b/i.test(suf) || /^CGP\b|^CPM\b/i.test(suf)) destino = { tipo: 'cgp' };
       else if (suf === '' || /^IMAGEN\s*GENERAL/i.test(suf)) destino = { tipo: 'general' };
       else if (/^\d+$/.test(suf)) destino = opts.sufijo1EsCGP && +suf === 1 ? { tipo: 'cgp' } : { tipo: 'general' };
@@ -593,7 +604,7 @@
         if (!node.cgp) model.notas.push(`Foto de CGP/CPM ${it.base} en ${node.name}, que no tiene CGP/CPM en TIPO ni en OBSERVACIONES: se muestra en su popup.`);
         (node.cgp ? node.fotosCGP : node.fotos).push(it);
       } else {
-        const d = node.defectos.find(x => x.codigo === destino.codigo); d.fotos.push(it);
+        const d = destino.def || node.defectos.find(x => x.codigo === destino.codigo); d.fotos.push(it);
       }
       asociadas++;
     });
@@ -648,6 +659,7 @@
   function popupDef(d, nameOf) {
     let h = `<b>Código de defecto:</b> ${escHtml(d.codigo)}<br/>`;
     if (trim(d.desc)) h += `<b>Descripción:</b> ${escHtml(d.desc)}<br/>`;
+    if (d.inst) h += `<b>Nº de ${escHtml(d.codigo)} en el apoyo:</b> ${escHtml(d.inst)}<br/>`;
     h += `<b>Apoyo asociado:</b> ${escHtml(d.node.esPT ? d.node.name : d.node.code)}<br/>`;
     if (d.lejos) h += `<b>Aviso:</b> las coordenadas del defecto están a ${fmtMiles(d.dist)} m del apoyo asociado.<br/>`;
     if (d.fotos.length) h += '<br/>' + imgs(d.fotos, nameOf);
@@ -1287,12 +1299,16 @@
       if (tieneCGP(r.tipo) && !tieneCGP(obs)) { obs = obs ? obs + ' / CON CGP' : 'CON CGP'; resumen.push(`Apoyo ${r.apoyo}: TIPO con CGP/CPM y sin mención en observaciones → añadido "CON CGP".`); }
       const ds = r === n.row ? (defPorNodo.get(n) || []) : [];
       const codigos = [], q91 = [], descs = [];
+      const nCod = {};
+      ds.forEach(d => { nCod[d.codigo] = (nCod[d.codigo] || 0) + 1; });
       ds.forEach(d => {
         if (d.codigo === 'ZOBX_Q91X') { if (!q91.includes(d.codigo)) q91.push(d.codigo); }
         else if (!codigos.includes(d.codigo)) codigos.push(d.codigo);
         const de = trim(d.desc);
-        if (de && !descs.some(x => upperEs(x) === upperEs(de))) descs.push(de);
+        // con varios defectos iguales (2XZOBX) van todas sus descripciones, una detrás de otra
+        if (de && (nCod[d.codigo] > 1 || !descs.some(x => upperEs(x) === upperEs(de)))) descs.push(de);
       });
+      const conVeces = c => nCod[c] > 1 ? `${nCod[c]}X${c}` : c;
       // FOTO: PT → foto general "_1"; apoyos con defecto → 1ª foto del defecto más grave
       let foto = null, fotoMotivo = '';
       if (n.esPT && r === n.row && p) {
@@ -1321,7 +1337,7 @@
       return { clave, candidatas,
         fecha: r.fecha, ct: model.ct, cuadro: r.cuadro, salida: r.salida, apoyo: r.apoyo, tipo,
         inicio: r.esPT ? (inicio || '0') : inicio, fin: r.esPT ? (fin || '0') : fin, seccion: r.seccion, dist,
-        defec: codigos.join(' / '), q91x: q91.join(' / '), obs: upperEs(partes.join(' / ')), foto: '', fotoSrc: foto, fotoMotivo
+        defec: codigos.map(conVeces).join(' / '), q91x: q91.map(conVeces).join(' / '), obs: upperEs(partes.join(' / ')), foto: '', fotoSrc: foto, fotoMotivo
       };
     });
     // Redondeo acumulado: cada DIST. se redondea a metros pero la suma de la columna = total real redondeado

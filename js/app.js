@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.15.0';
+  const APP_VERSION = '1.16.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -397,7 +397,9 @@
     const btn = $('btnKmz'); btn.disabled = true; btn.textContent = 'Generando…';
     try {
       const m = modeloDesdeTablas();
-      if (estado.fotos.length) { renombrarCampo(); pintarFotos(); btn.textContent = 'Preparando fotos…'; await descargarOriginales(m.ct); for (const f of estado.fotos) await f.leer(); btn.textContent = 'Generando KMZ…'; }
+      if (estado.fotos.length) { renombrarCampo(); pintarFotos(); btn.textContent = 'Preparando fotos…'; const provO = provinciaCentro(m.ct).nombre; estado.sinOriginales = ['BADAJOZ', 'SEVILLA'].includes(sinAcento(provO));
+        if (!estado.sinOriginales) await descargarOriginales(m.ct);
+        for (const f of estado.fotos) await f.leer(); btn.textContent = 'Generando KMZ…'; }
       const ph = C.asociarFotos(m, estado.fotos.map(f => f.nombre), { sufijo1EsCGP: $('chkSuf1').checked });
       // nombres únicos dentro de files/
       const usados = new Set(['leyenda.png']); const nombreDe = new Map();
