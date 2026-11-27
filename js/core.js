@@ -134,7 +134,7 @@
       const explicitos = f.filter(x => /^\d{7,}[A-Z0-9_]*$/i.test(x) || /^(\d+_){2,3}\d+(_[A-Z0-9_]+)?$/i.test(x));
       // Badajoz/Sevilla: varios ZOBX en un apoyo → la Key acaba en ZOBX_1, ZOBX_2…
       let inst = '';
-      if (codigo === 'ZOBX') { const kx = f.map(x => String(x).match(/^\d{7,}ZOBX_(\d+)$/i) || String(x).match(/^ZOBX_(\d+)$/i)).find(Boolean); if (kx) inst = kx[1]; }
+      if (codigo === 'ZOBX') { const kx = f.map(x => String(x).match(/^\d{7,}ZOBX[_\s-]?(\d+)$/i) || String(x).match(/^ZOBX[_\s-]?(\d+)$/i)).find(Boolean); if (kx) inst = kx[1]; }
       out.push({ linea: i + 1, tipo: ic > 0 ? f[0] : '', ct: ctIdx >= 0 ? f[ctIdx] : '', codigo, desc, coords, explicitos, inst, origen: 'tabla de defectos' });
     });
     return { defectos: out, avisos };
@@ -581,12 +581,12 @@
       const { node, suf } = it;
       const codes = [...new Set(node.defectos.map(d => d.codigo))].sort((a, b) => b.length - a.length);
       const sufU = suf.toUpperCase();
-      const dc = codes.find(c => sufU === c || sufU.startsWith(c + '_') || sufU.startsWith(c + '.') || sufU.startsWith(c + ' ') || sufU.startsWith(c + '-'));
+      const dc = codes.find(c => sufU === c || sufU.startsWith(c + '_') || sufU.startsWith(c + '.') || sufU.startsWith(c + ' ') || sufU.startsWith(c + '-') || (c === 'ZOBX' && /^ZOBX\d/.test(sufU)));
       let destino;
       const zobxs = node.defectos.filter(d => d.codigo === 'ZOBX');
       if (dc === 'ZOBX' && zobxs.some(d => d.inst)) {
         // varios ZOBX: el número tras «ZOBX_» dice cuál es; sin número, el que no lleva número
-        const mz = sufU.match(/^ZOBX_?(\d+)?/); const n = mz && mz[1] ? mz[1] : '';
+        const mz = sufU.match(/^ZOBX[_\s-]?(\d+)?/); const n = mz && mz[1] ? mz[1] : '';
         const d = zobxs.find(x => (x.inst || '') === n) || (n === '' ? null : null);
         if (d) destino = { tipo: 'defecto', codigo: 'ZOBX', def: d };
         else { huerfanas.push({ nombre: it.full, motivo: `foto de ZOBX_${n} pero ${node.name} no tiene ese ZOBX en la tabla de defectos` }); return; }
