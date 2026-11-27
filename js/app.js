@@ -1,7 +1,7 @@
 /* Interfaz de KMZ + ANEXO III Red BT */
 (function () {
   'use strict';
-  const APP_VERSION = '1.11.0';
+  const APP_VERSION = '1.12.0';
   const C = window.Core;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1110,6 +1110,7 @@
     const re = new RegExp('(?<!\\d)(' + ks.join('|') + ')(?!\\d)', 'g');
     return String(nombre).replace(re, x => m[x]);
   }
+  const trimTxt = v => String(v == null ? '' : v).trim();
   function pintarNumeracion() {
     const zona = $('numeracion');
     let m = null;
@@ -1142,7 +1143,14 @@
       <label>Apoyo actual<input id="nmDe" type="number" min="1"></label>
       <label>Número nuevo<input id="nmA" type="number" min="1"></label>
       <label style="flex-direction:row;align-items:center;gap:6px;width:auto"><input id="nmSig" type="checkbox" style="width:auto"> y los siguientes también</label>
-      <button class="peq" id="btnNumMan">Aplicar</button></div></details>`;
+      <button class="peq" id="btnNumMan">Aplicar</button></div></details>
+    <details style="margin-top:6px"${estado.ifAbierto ? ' open' : ''} id="detIniFin"><summary>Cambiar el INICIO y el FIN de un tramo</summary><div class="num-man">
+      <label>Salida<select id="ifSal">${salidas.map(([c, sa]) => `<option value="${c}|${sa}">${salidas.some(x => x[0] !== c) ? 'C' + c + ' ' : ''}${C.salName(sa)}</option>`).join('')}</select></label>
+      <label>Apoyo<input id="ifAp" type="number" min="1"></label>
+      <label>INICIO<input id="ifIni" type="text" inputmode="numeric" style="width:80px"></label>
+      <label>FIN<input id="ifFin" type="text" inputmode="numeric" style="width:80px"></label>
+      <button class="peq" id="btnIniFin">Aplicar</button></div>
+      <div class="info" id="ifInfo">Pon la salida y el apoyo: se rellenan su INICIO y su FIN actuales para que los cambies. El tramo va del apoyo INICIO al apoyo FIN (0 es el PT).</div></details>`;
     zona.innerHTML = h; enganchar();
     function enganchar() {
       zona.querySelectorAll('[data-compactar]').forEach(b => b.onclick = () => { const [c, sa] = b.dataset.compactar.split('|'); const mm = modeloDesdeTablas(); aplicarRenumeracion(mm, C.propuestaCompactar(mm, +c, sa === '' ? null : +sa)); });
@@ -1155,6 +1163,28 @@
         aplicarRenumeracion(mm, prop);
       };
       if ($('btnDeshacerNum')) $('btnDeshacerNum').onclick = deshacerRenumeracion;
+      // INICIO / FIN de un tramo
+      const filaIF = () => {
+        const [c, sa] = $('ifSal').value.split('|').map(Number), ap = +$('ifAp').value; if (!ap) return null;
+        const mm = modeloDesdeTablas(); const n = mm.nodes.find(x => !x.esPT && x.cuadro === c && x.salida === sa && +x.apoyo === ap);
+        return n ? { mm, n } : null;
+      };
+      if ($('ifAp')) {
+        const rellenar = () => { const x = filaIF(); if (!x) { $('ifInfo').textContent = $('ifAp').value ? 'No hay ese apoyo en esa salida.' : 'Pon la salida y el apoyo.'; return; } $('ifIni').value = trimTxt(x.n.row.inicio); $('ifFin').value = trimTxt(x.n.row.fin); $('ifInfo').textContent = `Apoyo ${x.n.apoyo} (${C.salName(x.n.salida)}): ahora INICIO ${trimTxt(x.n.row.inicio) || '—'} y FIN ${trimTxt(x.n.row.fin) || '—'}.`; };
+        $('ifAp').oninput = rellenar; $('ifSal').onchange = rellenar;
+        $('detIniFin').ontoggle = () => { estado.ifAbierto = $('detIniFin').open; };
+        $('btnIniFin').onclick = () => {
+          const x = filaIF(); if (!x) return alert('Elige una salida y un apoyo que exista.');
+          const ini = $('ifIni').value.trim(), fin = $('ifFin').value.trim();
+          if (!/^\d*$/.test(ini) || !/^\d*$/.test(fin)) return alert('INICIO y FIN tienen que ser números de apoyo (0 para el PT).');
+          const txt = C.editarTabla($('txtMain').value, x.mm, [{ r: x.n.row, inicio: ini, fin }]);
+          $('txtMain').value = txt; lsSet(LS.main, txt); infoTabla($('txtMain'), 'infoMain');
+          if (estado.kmzGenerado) { estado.avisoRegenerar = true; if (estado.kmzModificado === estado.kmzGenerado) estado.kmzModificado = null; estado.kmzGenerado = null; $('btnUsarGenerado').hidden = true; $('res1').innerHTML = ''; actualizarBtnExcel(); }
+          const ap = $('ifAp').value, sal = $('ifSal').value;
+          revisarTablas(); pintarNumeracion(); pintarSecciones(); comprobarLuego();
+          if ($('ifAp')) { $('ifSal').value = sal; $('ifAp').value = ap; $('ifInfo').textContent = `✔ Apoyo ${ap}: INICIO ${ini || '—'} y FIN ${fin || '—'} guardados en la tabla.`; $('ifIni').value = ini; $('ifFin').value = fin; }
+        };
+      }
       if ($('btnZipRen')) $('btnZipRen').onclick = zipRenombradas;
     }
   }

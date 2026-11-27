@@ -291,7 +291,9 @@
       if (!c) return l;
       const f = l.split(sep);
       while (f.length <= r.off + 8) f.push('');
-      f[r.off + 8] = c.seccion;
+      if (c.inicio != null) f[r.off + 6] = c.inicio;
+      if (c.fin != null) f[r.off + 7] = c.fin;
+      if (c.seccion != null) f[r.off + 8] = c.seccion;
       return f.join(sep);
     }).join('\n');
   }
